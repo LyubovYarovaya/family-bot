@@ -12,13 +12,10 @@ Postgres. Отдельная сборка не нужна — хостинг с�
 ## Railway (рекомендую — аккаунт уже есть)
 
 1. **Создать сервис.** railway.app → *New Project* → *Deploy from GitHub repo* →
-   `LyubovYarovaya/Markdown-Cheatsheet`.
+   репозиторий с этим ботом (ветка `main`).
 
-2. **Указать, что именно собирать.** *Settings* → *Source*:
-   - *Branch*: `claude/telegram-shopping-expenses-bot-7rboan`
-   - *Root Directory*: `family-bot`
-
-   Railway увидит `Dockerfile` и соберёт по нему.
+   Railway увидит `Dockerfile` в корне и соберёт по нему. Ничего дополнительно
+   указывать не нужно: *Root Directory* остаётся пустым.
 
 3. **Добавить базу.** В проекте → *New* → *Database* → *PostgreSQL*.
    SQLite на хостинге не годится: контейнер пересоздаётся при каждом деплое и
@@ -73,8 +70,7 @@ Postgres. Отдельная сборка не нужна — хостинг с�
 Если захочется полного контроля, на сервере с Docker хватит:
 
 ```bash
-git clone -b claude/telegram-shopping-expenses-bot-7rboan https://github.com/LyubovYarovaya/Markdown-Cheatsheet.git
-cd Markdown-Cheatsheet/family-bot
+git clone <адрес-репозитория> family-bot && cd family-bot
 cp .env.example .env      # BOT_TOKEN и PUBLIC_URL с твоим доменом
 docker compose up -d --build
 ```
