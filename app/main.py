@@ -5,7 +5,7 @@ import contextlib
 import logging
 from pathlib import Path
 
-from aiogram.types import Update
+from aiogram.types import MenuButtonWebApp, Update, WebAppInfo
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -44,6 +44,22 @@ async def _start_bot(app: FastAPI) -> None:
         return
     runtime.bot_username = me.username
     await bot.set_my_commands(COMMANDS)
+
+    # Кнопка «Меню» слева от поля ввода — постоянный вход в приложение.
+    # Заодно она переезжает на новый адрес сама: при локальном запуске туннель
+    # каждый раз выдаёт другой домен, и руками её в BotFather не наперенастраиваешься.
+    if settings.base_url.startswith("https://"):
+        try:
+            await bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="Приложение", web_app=WebAppInfo(url=settings.webapp_url)
+                )
+            )
+        except Exception as error:  # noqa: BLE001 — без кнопки меню бот всё равно работает
+            log.warning("Не получилось настроить кнопку меню: %s", error)
+    else:
+        log.info("PUBLIC_URL не https — кнопку меню не ставлю, Telegram примет только https")
+
     log.info("Бот @%s готов, режим %s", me.username, settings.bot_mode)
 
     if settings.bot_mode == "webhook":
@@ -106,6 +122,17 @@ async def share_page(token: str) -> FileResponse:
 @app.get("/")
 async def root() -> FileResponse:
     return FileResponse(WEB_DIR / "index.html")
+
+
+@app.middleware("http")
+async def no_cache_webapp(request: Request, call_next):
+    """Вебвью Telegram кэширует html и js намертво: после правки в приложении
+    человек продолжает видеть старую версию. Для статики мини-приложения кэш
+    выключаем — файлы крошечные, а отладка становится предсказуемой."""
+    response = await call_next(request)
+    if request.url.path.startswith(("/app", "/static", "/s/")):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 app.mount("/app", StaticFiles(directory=WEB_DIR, html=True), name="webapp")

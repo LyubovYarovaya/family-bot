@@ -4,6 +4,44 @@ const tg = window.Telegram?.WebApp;
 tg?.ready();
 tg?.expand();
 
+/* Telegram кладёт подписанную initData в адрес мини-приложения — обычно в хэш
+   (#tgWebAppData=…), иногда в query. Оттуда её и достаёт telegram-web-app.js.
+   Читаем сами по двум причинам: внешний скрипт может не загрузиться, а при
+   перезагрузке страницы Telegram открывает адрес уже без этих параметров. */
+function initDataFromUrl() {
+  for (const part of [window.location.hash.replace(/^#/, ''), window.location.search.replace(/^\?/, '')]) {
+    if (!part) continue;
+    try {
+      const value = new URLSearchParams(part).get('tgWebAppData');
+      if (value) return value;
+    } catch (_) { /* мусор в адресе — просто пробуем дальше */ }
+  }
+  return '';
+}
+
+/* Строку входа держим на время сеанса: если Telegram перезагрузит страницу без
+   параметров, нам будет чем авторизоваться. sessionStorage живёт только пока
+   открыто окно мини-приложения, а сервер всё равно проверяет подпись и срок
+   (сутки) — просроченную строку он не примет. */
+const INIT_DATA_KEY = 'tg_init_data';
+
+function rememberInitData(value) {
+  try {
+    if (value) sessionStorage.setItem(INIT_DATA_KEY, value);
+  } catch (_) { /* приватный режим — переживём */ }
+}
+
+function forgetInitData() {
+  try { sessionStorage.removeItem(INIT_DATA_KEY); } catch (_) { /* ничего */ }
+}
+
+function storedInitData() {
+  try { return sessionStorage.getItem(INIT_DATA_KEY) || ''; } catch (_) { return ''; }
+}
+
+const initData = tg?.initData || initDataFromUrl() || storedInitData();
+rememberInitData(initData);
+
 const state = {
   tab: 'shopping',
   me: null,
@@ -53,11 +91,14 @@ async function api(path, { method = 'GET', body } = {}) {
     method,
     headers: {
       'Content-Type': 'application/json',
-      'X-Telegram-Init-Data': tg?.initData || '',
+      'X-Telegram-Init-Data': initData,
     },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!response.ok) {
+    // Строка входа протухла или неверна — забываем её, иначе будем биться
+    // об один и тот же 401 до конца сеанса.
+    if (response.status === 401) forgetInitData();
     let detail = `Ошибка ${response.status}`;
     try { detail = (await response.json()).detail || detail; } catch (_) { /* пусто */ }
     throw new Error(detail);
@@ -115,10 +156,11 @@ function listChips(kind) {
   const lists = state.lists.filter((l) => l.kind === kind);
   return `<div class="chips">${lists.map((l) => `
     <button class="chip ${l.id === state.active[kind] ? 'active' : ''}" data-pick-list="${l.id}">
-      <span>${esc(l.emoji)} ${esc(l.title)}</span>
+      ${iconForEmoji(l.emoji)}
+      <span>${esc(l.title)}</span>
       <span class="count">${l.active_count}</span>
     </button>`).join('')}
-    <button class="chip" data-new-list="${kind}">＋</button>
+    <button class="chip add" data-new-list="${kind}">${icon('plus', 'ic-sm')}</button>
   </div>`;
 }
 
@@ -126,23 +168,33 @@ function itemCard(item) {
   const thumb = item.image_url
     ? `<img class="thumb" src="${esc(item.image_url)}" alt="" loading="lazy" onerror="this.remove()">`
     : '';
+  // Цена — отдельной строкой и крупно, остальное приглушённой подписью под ней.
+  const priceLine = item.price
+    ? `<div class="meta"><span class="price">${esc(money(item.price, item.currency || state.me.currency))}</span></div>`
+    : '';
   const meta = [];
-  if (item.price) meta.push(`<span class="price">${esc(money(item.price, item.currency || state.me.currency))}</span>`);
   if (item.shop) meta.push(`<span>${esc(item.shop)}</span>`);
   if (item.created_by) meta.push(`<span>${esc(item.created_by)}</span>`);
-  if (item.is_reserved) meta.push(`<span class="badge reserved">🎀 ${esc(item.reserved_by || 'забронировано')}</span>`);
+  if (item.is_reserved) {
+    meta.push(`<span class="badge reserved">${icon('ribbon')} ${esc(item.reserved_by || 'забронировано')}</span>`);
+  }
 
   return `<div class="card ${item.status === 'bought' ? 'bought' : ''}">
     ${thumb}
     <div class="body">
       <div class="title">${esc(item.title)}</div>
-      <div class="meta">${meta.join('')}</div>
-      ${item.note ? `<div class="meta">📝 ${esc(item.note)}</div>` : ''}
+      ${priceLine}
+      ${meta.length ? `<div class="meta">${meta.join('')}</div>` : ''}
+      ${item.note ? `<div class="meta">${icon('note', 'ic-sm')} ${esc(item.note)}</div>` : ''}
       <div class="actions">
-        ${item.url ? `<a class="btn small" href="${esc(item.url)}" target="_blank" rel="noopener">🔗 Открыть</a>` : ''}
-        <button class="btn small" data-toggle-bought="${item.id}">${item.status === 'bought' ? '↩︎ Вернуть' : '✅ Куплено'}</button>
-        <button class="btn small" data-edit-item="${item.id}">✏️</button>
-        <button class="btn small danger" data-delete-item="${item.id}">🗑</button>
+        ${item.url ? `<a class="btn small outline" href="${esc(item.url)}" target="_blank" rel="noopener">
+          ${icon('link', 'ic-sm')} Открыть</a>` : ''}
+        <button class="btn small ${item.status === 'bought' ? 'outline' : 'primary'}" data-toggle-bought="${item.id}">
+          ${item.status === 'bought' ? `${icon('undo', 'ic-sm')} Вернуть` : `${icon('check', 'ic-sm')} Куплено`}
+        </button>
+        <span class="spacer"></span>
+        <button class="btn small icon outline" data-edit-item="${item.id}" aria-label="Изменить">${icon('pencil', 'ic-sm')}</button>
+        <button class="btn small icon danger" data-delete-item="${item.id}" aria-label="Удалить">${icon('trash', 'ic-sm')}</button>
       </div>
     </div>
   </div>`;
@@ -161,21 +213,28 @@ function renderItemsView(kind) {
 
   const body = visible.length
     ? visible.map(itemCard).join('')
-    : `<div class="empty"><div class="big">${kind === 'wishlist' ? '🎁' : '🛍'}</div>
-        Пусто. Кинь боту ссылку на товар — он сам разложит по категориям.</div>`;
+    : `<div class="empty"><div class="big">${icon(kind === 'wishlist' ? 'gift' : 'bag')}</div>
+        Пусто. Кинь боту ссылку на товар — он сам вытянет название, цену и картинку.</div>`;
 
   view.innerHTML = `
     ${listChips(kind)}
     ${list ? `<div class="panel">
-      <div class="row" style="padding-top:0">
-        <div class="label"><b>${esc(list.emoji)} ${esc(list.title)}</b></div>
-        <div class="value">${total ? esc(money(total, state.me.currency)) : ''}</div>
+      <div class="list-head">
+        ${iconBadge(list.emoji)}
+        <span class="name">${esc(list.title)}</span>
+        ${total ? `<span class="sum">${esc(money(total, state.me.currency))}</span>` : ''}
       </div>
-      <div class="actions" style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn small" data-toggle-shown>${state.showBought ? 'Скрыть купленное' : 'Показать купленное'}</button>
-        <button class="btn small" data-share-list="${list.id}">${list.is_shared ? '🔗 Ссылка' : '🔒 Поделиться'}</button>
-        <button class="btn small" data-rename-list="${list.id}">✏️ Название</button>
-        <button class="btn small danger" data-delete-list="${list.id}">🗑</button>
+      <div class="list-actions">
+        <button class="btn small outline" data-toggle-shown>
+          ${icon(state.showBought ? 'eyeOff' : 'eye', 'ic-sm')}
+          ${state.showBought ? 'Скрыть купленное' : 'Показать купленное'}
+        </button>
+        <button class="btn small ${list.is_shared ? 'outline' : 'outline'}" data-share-list="${list.id}">
+          ${icon(list.is_shared ? 'link' : 'share', 'ic-sm')} ${list.is_shared ? 'Ссылка' : 'Поделиться'}
+        </button>
+        <span class="spacer" style="flex:1"></span>
+        <button class="btn small icon outline" data-rename-list="${list.id}" aria-label="Переименовать">${icon('pencil', 'ic-sm')}</button>
+        <button class="btn small icon danger" data-delete-list="${list.id}" aria-label="Удалить список">${icon('trash', 'ic-sm')}</button>
       </div>
       ${list.is_shared ? `<div class="share-box">
         <input readonly value="${esc(list.share_url)}">
@@ -191,10 +250,10 @@ function expenseRow(expense) {
   const date = new Date(expense.spent_on);
   return `<div class="row">
     <div class="label">
-      <span>${esc(expense.category_emoji || '❔')}</span>
+      ${iconBadge(expense.category_emoji || '❔', 'sm')}
       <span>
-        <div>${esc(expense.title || expense.category_title || 'Трата')}</div>
-        <div style="font-size:12px;color:var(--hint)">
+        <div class="name">${esc(expense.title || expense.category_title || 'Трата')}</div>
+        <div class="sub">
           ${String(date.getDate()).padStart(2, '0')}.${String(date.getMonth() + 1).padStart(2, '0')}
           ${expense.period !== 'once' ? ' · ' + esc(PERIODS[expense.period]) : ''}
           ${expense.created_by ? ' · ' + esc(expense.created_by) : ''}
@@ -203,7 +262,7 @@ function expenseRow(expense) {
     </div>
     <div class="value">
       ${esc(money(expense.amount, expense.currency))}
-      <button class="btn small ghost" data-edit-expense="${expense.id}">✏️</button>
+      <button class="btn small icon ghost" data-edit-expense="${expense.id}" aria-label="Изменить">${icon('pencil', 'ic-sm')}</button>
     </div>
   </div>`;
 }
@@ -214,36 +273,35 @@ function renderExpensesView() {
   const monthLabel = `${MONTHS[state.month.getMonth()]} ${state.month.getFullYear()}`;
 
   const categories = summary.by_category.map((bucket) => `
-    <div class="row">
-      <div class="label"><span>${esc(bucket.emoji)}</span><span>${esc(bucket.title)}
-        <div class="bar"><span style="width:${(bucket.total / max) * 100}%"></span></div>
-      </span></div>
+    <div class="row cat">
+      <div class="label">${iconBadge(bucket.emoji, 'sm')}<span class="name">${esc(bucket.title)}</span></div>
       <div class="value">${esc(money(bucket.total, summary.currency))}</div>
-    </div>`).join('') || '<div class="empty">Трат за месяц нет</div>';
+      <div class="bar"><span style="width:${(bucket.total / max) * 100}%"></span></div>
+    </div>`).join('') || '<div class="dim">Трат за месяц нет</div>';
 
   const others = summary.by_currency.filter((b) => b.key !== summary.currency);
   const templates = state.templates.map((template) => `
     <div class="row">
-      <div class="label"><span>${esc(template.category_emoji || '🔁')}</span><span>
-        <div>${esc(template.title || template.category_title || 'Платёж')}</div>
-        <div style="font-size:12px;color:var(--hint)">${esc(PERIODS[template.period])}</div>
+      <div class="label">${iconBadge(template.category_emoji || '🔁', 'sm')}<span>
+        <div class="name">${esc(template.title || template.category_title || 'Платёж')}</div>
+        <div class="sub">${esc(PERIODS[template.period])}</div>
       </span></div>
       <div class="value">${esc(money(template.amount, template.currency))}
-        <button class="btn small" data-pay-template="${template.id}">Оплатить</button>
-        <button class="btn small ghost" data-edit-expense="${template.id}">✏️</button>
+        <button class="btn small primary" data-pay-template="${template.id}">Оплатить</button>
+        <button class="btn small icon ghost" data-edit-expense="${template.id}" aria-label="Изменить">${icon('pencil', 'ic-sm')}</button>
       </div>
-    </div>`).join('') || '<div style="color:var(--hint);font-size:13px">Регулярных платежей пока нет — добавь аренду, подписки, страховку.</div>';
+    </div>`).join('') || '<div class="dim">Регулярных платежей пока нет — добавь аренду, подписки, страховку.</div>';
 
   view.innerHTML = `
     <div class="panel">
-      <div class="row" style="padding-top:0;align-items:center">
-        <button class="btn small" data-month="-1">‹</button>
+      <div class="monthbar">
+        <button class="btn small icon outline" data-month="-1" aria-label="Предыдущий месяц">${icon('left', 'ic-sm')}</button>
         <b>${esc(monthLabel)}</b>
-        <button class="btn small" data-month="1">›</button>
+        <button class="btn small icon outline" data-month="1" aria-label="Следующий месяц">${icon('right', 'ic-sm')}</button>
       </div>
       <div class="total">${esc(money(summary.total, summary.currency))}</div>
-      ${others.length ? `<div style="color:var(--hint);font-size:13px">
-        + ${others.map((b) => esc(money(b.total, b.key))).join(' · ')}</div>` : ''}
+      <div class="total-caption">потрачено за месяц</div>
+      ${others.length ? `<div class="dim" style="margin-top:4px">+ ${others.map((b) => esc(money(b.total, b.key))).join(' · ')}</div>` : ''}
       <div class="row"><div class="label">Регулярные в месяц</div>
         <div class="value">${esc(money(summary.planned_monthly, summary.currency))}</div></div>
       <div class="row"><div class="label">В квартал</div>
@@ -252,14 +310,16 @@ function renderExpensesView() {
         <div class="value">${esc(money(summary.planned_yearly, summary.currency))}</div></div>
     </div>
 
-    <div class="panel"><h3>По категориям</h3>${categories}</div>
+    <div class="panel"><h3>${icon('wallet')} По категориям</h3>${categories}</div>
 
-    <div class="panel"><h3>🔁 Регулярные платежи</h3>${templates}
-      <button class="btn small" data-new-template style="margin-top:10px">＋ Добавить регулярный</button>
+    <div class="panel"><h3>${icon('repeat')} Регулярные платежи</h3>${templates}
+      <button class="btn small outline" data-new-template style="margin-top:12px">
+        ${icon('plus', 'ic-sm')} Добавить регулярный
+      </button>
     </div>
 
-    <div class="panel"><h3>Траты месяца</h3>
-      ${state.expenses.length ? state.expenses.map(expenseRow).join('') : '<div class="empty">Пока пусто</div>'}
+    <div class="panel"><h3>${icon('money')} Траты месяца</h3>
+      ${state.expenses.length ? state.expenses.map(expenseRow).join('') : '<div class="dim">Пока пусто</div>'}
     </div>`;
 }
 
@@ -270,41 +330,43 @@ function renderSettings() {
   const shared = state.lists.filter((l) => l.is_shared);
   view.innerHTML = `
     <div class="panel">
-      <h3>👨‍👩‍👧 ${esc(me.household_title)}</h3>
+      <h3>${icon('users')} ${esc(me.household_title)}</h3>
       ${me.members.map((m) => `<div class="row"><div class="label">${esc(m.name)}</div>
-        <div class="value">${m.id === me.user.id ? 'это ты' : ''}</div></div>`).join('')}
+        <div class="value dim">${m.id === me.user.id ? 'это ты' : ''}</div></div>`).join('')}
       <div class="share-box">
         <input readonly value="${esc(me.invite_url)}">
-        <button class="btn small" data-copy="${esc(me.invite_url)}">Копировать</button>
+        <button class="btn small outline" data-copy="${esc(me.invite_url)}">${icon('copy', 'ic-sm')} Копировать</button>
       </div>
-      <div style="color:var(--hint);font-size:13px;margin-top:8px">
+      <div class="dim" style="margin-top:10px">
         Отправь эту ссылку второй половинке — списки и траты станут общими.
       </div>
     </div>
 
     <div class="panel">
-      <h3>🔗 Открытые ссылки</h3>
+      <h3>${icon('link')} Открытые ссылки</h3>
       ${shared.length ? shared.map((l) => `<div class="row">
-        <div class="label">${esc(l.emoji)} ${esc(l.title)}</div>
-        <div class="value"><button class="btn small" data-copy="${esc(l.share_url)}">Копировать</button>
+        <div class="label">${iconBadge(l.emoji, 'sm')} ${esc(l.title)}</div>
+        <div class="value"><button class="btn small icon outline" data-copy="${esc(l.share_url)}" aria-label="Копировать">${icon('copy', 'ic-sm')}</button>
         <button class="btn small danger" data-unshare="${l.id}">Закрыть</button></div>
-      </div>`).join('') : '<div style="color:var(--hint);font-size:13px">Пока ничего не расшарено. Открой список и нажми «Поделиться».</div>'}
+      </div>`).join('') : '<div class="dim">Пока ничего не расшарено. Открой список и нажми «Поделиться».</div>'}
     </div>
 
     <div class="panel">
-      <h3>💸 Категории трат</h3>
+      <h3>${icon('money')} Категории трат</h3>
       ${state.expenseCategories.map((c) => `<div class="row">
-        <div class="label">${esc(c.emoji)} ${esc(c.title)}</div>
-        <div class="value"><button class="btn small danger" data-delete-expense-category="${c.id}">🗑</button></div>
+        <div class="label">${iconBadge(c.emoji, 'sm')} ${esc(c.title)}</div>
+        <div class="value"><button class="btn small icon danger" data-delete-expense-category="${c.id}" aria-label="Удалить">${icon('trash', 'ic-sm')}</button></div>
       </div>`).join('')}
-      <button class="btn small" data-new-expense-category style="margin-top:10px">＋ Новая категория</button>
+      <button class="btn small outline" data-new-expense-category style="margin-top:12px">
+        ${icon('plus', 'ic-sm')} Новая категория
+      </button>
     </div>
 
     <div class="panel">
-      <h3>ℹ️ Как это работает</h3>
-      <div style="color:var(--hint);font-size:13px">
-        Кидай боту ссылку на товар — он вытянет название, цену и картинку и положит
-        в подходящую категорию. Пиши «450 бензин» — запишет трату.
+      <h3>${icon('info')} Как это работает</h3>
+      <div class="dim">
+        Кидай боту ссылку на товар — он вытянет название, цену, валюту и картинку
+        и положит в подходящую категорию. Пиши «450 бензин» — запишет трату.
         Любой список можно открыть по ссылке: гости увидят его без Telegram
         и смогут забронировать подарок.
       </div>
@@ -344,10 +406,25 @@ function openSheet(title, html, onSubmit) {
   form.querySelector('input, select, textarea')?.focus();
 }
 
+/* В нативном <select> картинку не покажешь, поэтому в выпадающих списках
+   остаются только названия — без эмодзи и без иконок. */
 function listOptions(kind, selectedId) {
   return state.lists.filter((l) => l.kind === kind)
-    .map((l) => `<option value="${l.id}" ${l.id === selectedId ? 'selected' : ''}>${esc(l.emoji)} ${esc(l.title)}</option>`)
+    .map((l) => `<option value="${l.id}" ${l.id === selectedId ? 'selected' : ''}>${esc(l.title)}</option>`)
     .join('');
+}
+
+/* Сетка иконок вместо поля «введи эмодзи». В базу уезжает всё тот же эмодзи —
+   его бот пишет в чат, где svg не вставишь. */
+function iconPicker(selected) {
+  const current = ICON_CHOICES.includes(selected) ? selected : ICON_CHOICES[0];
+  return `<label class="field"><span>Иконка</span>
+    <div class="icon-picker">
+      ${ICON_CHOICES.map((emoji, index) => `
+        <input type="radio" name="emoji" id="icon-${index}" value="${esc(emoji)}" ${emoji === current ? 'checked' : ''}>
+        <label for="icon-${index}">${iconForEmoji(emoji)}</label>`).join('')}
+    </div>
+  </label>`;
 }
 
 function openItemSheet(item = null) {
@@ -356,12 +433,13 @@ function openItemSheet(item = null) {
   const bothKinds = ['shopping', 'wishlist']
     .map((k) => `<optgroup label="${k === 'shopping' ? 'Покупки' : 'Вишлисты'}">${listOptions(k, listId)}</optgroup>`)
     .join('');
-  const auto = item ? '' : '<option value="">✨ Подобрать категорию самому</option>';
+  const auto = item ? '' : '<option value="">Подобрать категорию автоматически</option>';
 
   openSheet(item ? 'Позиция' : 'Новая позиция', `
     <label class="field"><span>Ссылка на товар</span>
       <input name="url" type="url" inputmode="url" placeholder="https://…" value="${esc(item?.url || '')}"></label>
-    <label class="field"><span>Название ${item ? '' : '(можно оставить пустым — возьму со страницы)'}</span>
+    ${item ? '' : '<div class="dim" style="margin:-6px 0 12px">Название, цену, валюту и картинку возьму со страницы сама — остальное можно не заполнять.</div>'}
+    <label class="field"><span>Название ${item ? '' : '(необязательно)'}</span>
       <input name="title" value="${esc(item?.title || '')}"></label>
     <div class="grid-2">
       <label class="field"><span>Цена</span>
@@ -395,7 +473,7 @@ function openExpenseSheet(expense = null, { template = false } = {}) {
   const isTemplate = expense ? expense.is_template : template;
   const today = new Date().toISOString().slice(0, 10);
   const options = state.expenseCategories
-    .map((c) => `<option value="${c.id}" ${c.id === expense?.category_id ? 'selected' : ''}>${esc(c.emoji)} ${esc(c.title)}</option>`)
+    .map((c) => `<option value="${c.id}" ${c.id === expense?.category_id ? 'selected' : ''}>${esc(c.title)}</option>`)
     .join('');
   const periods = Object.entries(PERIODS)
     .map(([key, title]) => `<option value="${key}" ${key === (expense?.period || (isTemplate ? 'monthly' : 'once')) ? 'selected' : ''}>${title}</option>`)
@@ -439,10 +517,8 @@ function openExpenseSheet(expense = null, { template = false } = {}) {
 
 function openListSheet(kind) {
   openSheet(kind === 'wishlist' ? 'Новый вишлист' : 'Новая категория', `
-    <div class="grid-2">
-      <label class="field"><span>Эмодзи</span><input name="emoji" value="${kind === 'wishlist' ? '🎁' : '📦'}" maxlength="4"></label>
-      <label class="field"><span>Название</span><input name="title" required></label>
-    </div>
+    <label class="field"><span>Название</span><input name="title" required></label>
+    ${iconPicker(kind === 'wishlist' ? '🎁' : '📦')}
     ${kind === 'wishlist' ? `<label class="field"><span>Чей</span>
       <select name="personal"><option value="">Общий на двоих</option><option value="1">Только мой</option></select></label>` : ''}
   `, async (data) => {
@@ -458,10 +534,8 @@ function openListSheet(kind) {
 
 function openRenameSheet(list) {
   openSheet('Название списка', `
-    <div class="grid-2">
-      <label class="field"><span>Эмодзи</span><input name="emoji" value="${esc(list.emoji)}" maxlength="4"></label>
-      <label class="field"><span>Название</span><input name="title" value="${esc(list.title)}" required></label>
-    </div>
+    <label class="field"><span>Название</span><input name="title" value="${esc(list.title)}" required></label>
+    ${iconPicker(list.emoji)}
   `, async (data) => {
     await api(`/api/lists/${list.id}`, { method: 'PATCH', body: { title: data.title, emoji: data.emoji } });
     await refresh();
@@ -470,10 +544,8 @@ function openRenameSheet(list) {
 
 function openExpenseCategorySheet() {
   openSheet('Категория трат', `
-    <div class="grid-2">
-      <label class="field"><span>Эмодзи</span><input name="emoji" value="💸" maxlength="4"></label>
-      <label class="field"><span>Название</span><input name="title" required></label>
-    </div>
+    <label class="field"><span>Название</span><input name="title" required></label>
+    ${iconPicker('💸')}
   `, async (data) => {
     await api('/api/expense-categories', { method: 'POST', body: { title: data.title, emoji: data.emoji } });
     await refresh();
@@ -612,7 +684,7 @@ async function refresh() {
       fab.hidden = true;
     }
   } catch (error) {
-    view.innerHTML = `<div class="empty"><div class="big">😕</div>${esc(error.message)}</div>`;
+    view.innerHTML = `<div class="empty"><div class="big">${icon('sad')}</div>${esc(error.message)}</div>`;
   }
 }
 
@@ -621,8 +693,16 @@ async function refresh() {
     await loadCore();
     await refresh();
   } catch (error) {
-    view.innerHTML = `<div class="empty"><div class="big">🔒</div>
+    const hint = initData
+      ? 'Отправь боту /start и открой приложение кнопкой из свежего сообщения.'
+      : 'Telegram не передал данные входа. Закрой это окно, отправь боту /start и нажми кнопку «Открыть приложение» — по обычной ссылке приложение не работает.';
+    view.innerHTML = `<div class="empty"><div class="big">${icon('lock')}</div>
       Не получилось авторизоваться: ${esc(error.message)}<br><br>
-      Открой приложение через кнопку в боте.</div>`;
+      ${hint}
+      <div class="dim" style="margin-top:16px;font-size:12px">
+        SDK: ${tg ? 'загружен' : 'не загрузился'} · адрес: ${initDataFromUrl() ? 'с данными' : 'пуст'}
+        · память: ${storedInitData() ? 'есть' : 'пусто'}<br>
+        ${esc(tg?.platform || 'нет платформы')} · версия ${esc(tg?.version || '—')}
+      </div></div>`;
   }
 })();

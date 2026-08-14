@@ -1,6 +1,7 @@
+import os
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +28,40 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _async_driver(cls, value):
+        """Хостинги дают адрес базы для синхронного драйвера, нам нужен async.
+
+        Railway, Render и Heroku подставляют DATABASE_URL вида
+        `postgres://…` или `postgresql://…`. SQLAlchemy с таким адресом возьмёт
+        psycopg, которого у нас нет, и упадёт на старте. Дописываем asyncpg.
+        """
+        if isinstance(value, str):
+            if value.startswith("postgres://"):
+                value = "postgresql://" + value[len("postgres://"):]
+            if value.startswith("postgresql://"):
+                value = "postgresql+asyncpg://" + value[len("postgresql://"):]
+        return value
+
+    @model_validator(mode="after")
+    def _public_url_from_platform(self):
+        """Адрес приложения на хостинге известен только после деплоя.
+
+        Railway кладёт домен в RAILWAY_PUBLIC_DOMAIN, Render — целиком в
+        RENDER_EXTERNAL_URL. Берём оттуда, если PUBLIC_URL не задан руками, —
+        иначе ссылки на вишлисты и мини-приложение уедут на localhost.
+        """
+        placeholders = {"", "http://localhost:8080", "https://example.com"}
+        if self.public_url.rstrip("/") in {p.rstrip("/") for p in placeholders}:
+            domain = os.getenv("RAILWAY_PUBLIC_DOMAIN") or os.getenv("RAILWAY_STATIC_URL")
+            external = os.getenv("RENDER_EXTERNAL_URL")
+            if domain:
+                self.public_url = domain if domain.startswith("http") else f"https://{domain}"
+            elif external:
+                self.public_url = external
+        return self
 
     @property
     def base_url(self) -> str:

@@ -13,9 +13,13 @@ from ..models import ExpenseCategory, ItemList
 
 
 def main_menu() -> ReplyKeyboardMarkup:
+    # Кнопка нижней клавиатуры намеренно без web_app: приложение, открытое
+    # такой кнопкой, Telegram считает «простым» и не передаёт ему initData —
+    # внутри некому авторизоваться. Поэтому она просто шлёт текст, а в ответ
+    # прилетает сообщение с inline-кнопкой, которой данные входа уже даются.
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🛍 Открыть приложение", web_app=WebAppInfo(url=settings.webapp_url))],
+            [KeyboardButton(text="🛍 Открыть приложение")],
             [KeyboardButton(text="📋 Списки"), KeyboardButton(text="🎁 Вишлисты")],
             [KeyboardButton(text="💸 Траты"), KeyboardButton(text="📊 За месяц")],
         ],

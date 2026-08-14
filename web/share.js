@@ -54,7 +54,7 @@ function askName() {
     modalRoot.innerHTML = `<div class="sheet-backdrop">
       <form class="sheet">
         <h2>Как вас зовут?</h2>
-        <p style="color:var(--hint);font-size:13px;margin-top:-6px">
+        <p class="dim" style="margin:-8px 0 14px">
           Имя увидят только другие гости — чтобы не задарить одно и то же дважды.
         </p>
         <label class="field"><input name="name" required maxlength="60" value="${esc(guestName())}" placeholder="Аня"></label>
@@ -88,10 +88,10 @@ function itemCard(item) {
   if (item.price) meta.push(`<span class="price">${esc(money(item.price, item.currency))}</span>`);
   if (item.priority > 0) meta.push('<span class="badge">очень хочется</span>');
   if (item.is_reserved) {
-    meta.push(`<span class="badge reserved">🎀 ${item.mine ? 'вы забронировали' : 'забронировано: ' + esc(item.reserved_by)}</span>`);
+    meta.push(`<span class="badge reserved">${icon('ribbon')} ${item.mine ? 'вы забронировали' : 'забронировано: ' + esc(item.reserved_by)}</span>`);
   }
 
-  let action = `<button class="btn small primary" data-reserve="${item.id}">🎀 Забронировать</button>`;
+  let action = `<button class="btn small primary" data-reserve="${item.id}">${icon('ribbon', 'ic-sm')} Забронировать</button>`;
   if (item.is_reserved) {
     action = item.mine
       ? `<button class="btn small" data-unreserve="${item.id}">Снять бронь</button>`
@@ -103,9 +103,10 @@ function itemCard(item) {
     <div class="body">
       <div class="title">${esc(item.title)}</div>
       <div class="meta">${meta.join('')}</div>
-      ${item.note ? `<div class="meta">📝 ${esc(item.note)}</div>` : ''}
+      ${item.note ? `<div class="meta">${icon('note', 'ic-sm')} ${esc(item.note)}</div>` : ''}
       <div class="actions">
-        ${item.url ? `<a class="btn small" href="${esc(item.url)}" target="_blank" rel="noopener">🔗 Посмотреть</a>` : ''}
+        ${item.url ? `<a class="btn small outline" href="${esc(item.url)}" target="_blank" rel="noopener">
+          ${icon('link', 'ic-sm')} Посмотреть</a>` : ''}
         ${action}
       </div>
     </div>
@@ -115,7 +116,7 @@ function itemCard(item) {
 async function load() {
   try {
     const data = await api(`/api/public/${encodeURIComponent(token)}?secret=${encodeURIComponent(guestSecret())}`);
-    document.getElementById('emoji').textContent = data.emoji;
+    document.getElementById('mark').innerHTML = iconForEmoji(data.emoji);
     document.getElementById('title').textContent = data.title;
     document.title = data.title;
     document.getElementById('subtitle').textContent = data.owner_name
@@ -130,9 +131,10 @@ async function load() {
 
     itemsNode.innerHTML = data.items.length
       ? data.items.map(itemCard).join('')
-      : '<div class="empty"><div class="big">🕊</div>Список пока пуст</div>';
+      : `<div class="empty"><div class="big">${icon('inbox')}</div>Список пока пуст</div>`;
   } catch (error) {
-    itemsNode.innerHTML = `<div class="empty"><div class="big">🙈</div>${esc(error.message)}</div>`;
+    document.getElementById('mark').innerHTML = icon('lock');
+    itemsNode.innerHTML = `<div class="empty"><div class="big">${icon('sad')}</div>${esc(error.message)}</div>`;
     document.getElementById('title').textContent = 'Список недоступен';
   }
 }
@@ -148,7 +150,7 @@ document.addEventListener('click', async (event) => {
       await api(`/api/public/${encodeURIComponent(token)}/items/${target.dataset.reserve}/reserve`, {
         method: 'POST', body: { name, secret: guestSecret() },
       });
-      toast('Забронировано 🎀');
+      toast('Забронировано');
     } else {
       await api(`/api/public/${encodeURIComponent(token)}/items/${target.dataset.unreserve}/unreserve`, {
         method: 'POST', body: { secret: guestSecret() },

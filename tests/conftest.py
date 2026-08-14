@@ -22,6 +22,13 @@ def clean_db():
     path = ROOT / "tests" / "test.db"
     path.unlink(missing_ok=True)
     yield
+    # Windows держит файл, пока живо хоть одно соединение, поэтому сначала
+    # закрываем пул SQLAlchemy, и только потом удаляем базу.
+    import asyncio
+
+    from app.db import engine
+
+    asyncio.run(engine.dispose())
     path.unlink(missing_ok=True)
 
 

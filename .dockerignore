@@ -1,0 +1,14 @@
+# Контекст сборки не должен тащить локальное окружение и базу:
+# .venv весит сотни мегабайт и всё равно не попадает в образ.
+.venv/
+__pycache__/
+*.pyc
+*.db
+.env
+.git/
+.gitignore
+tests/
+.pytest_cache/
+requirements-dev.txt
+start.sh
+start.ps1

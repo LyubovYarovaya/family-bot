@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import logging
 import re
 import socket
 from dataclasses import dataclass, asdict
@@ -18,6 +19,8 @@ from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 
 import httpx
 from bs4 import BeautifulSoup
+
+log = logging.getLogger("family-bot.links")
 
 URL_RE = re.compile(r"https?://[^\s<>()\[\]«»\"']+", re.IGNORECASE)
 
@@ -115,6 +118,30 @@ def _normalize_currency(raw: str | None) -> str | None:
     return CURRENCY_MAP.get(key, key[:3] if key.isalpha() else None)
 
 
+# Символы и слова, по которым узнаём валюту в живом тексте страницы.
+CURRENCY_HINTS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"₴|\bгрн\b|\bгривн|\bUAH\b", re.IGNORECASE), "UAH"),
+    (re.compile(r"€|\bEUR\b|\bевро\b|\bєвро\b", re.IGNORECASE), "EUR"),
+    (re.compile(r"\$|\bUSD\b|\bдолла|\bдола", re.IGNORECASE), "USD"),
+    (re.compile(r"\bz[łl]\b|\bPLN\b", re.IGNORECASE), "PLN"),
+    (re.compile(r"₽|\bруб\b|\bRUB\b", re.IGNORECASE), "RUB"),
+]
+
+
+def _currency_from_text(text: str) -> str | None:
+    """Магазин не разметил валюту — ищем её в тексте страницы.
+
+    Берём ту, что встретилась раньше остальных: рядом с ценой, а не в подвале
+    со списком «принимаем к оплате».
+    """
+    best: tuple[int, str] | None = None
+    for pattern, code in CURRENCY_HINTS:
+        match = pattern.search(text)
+        if match and (best is None or match.start() < best[0]):
+            best = (match.start(), code)
+    return best[1] if best else None
+
+
 def _walk_jsonld(node, out: list[dict]) -> None:
     if isinstance(node, dict):
         types = node.get("@type")
@@ -188,6 +215,10 @@ def parse_html(html: str, url: str) -> LinkPreview:
         if node is not None:
             preview.price = _to_decimal(node.get("content") or node.get_text())
 
+    # Цену нашли, а валюту магазин не разметил — вытаскиваем из текста страницы.
+    if preview.price and not preview.currency:
+        preview.currency = _currency_from_text(soup.get_text(" ", strip=True)[:20000])
+
     if preview.title:
         preview.title = re.sub(r"\s+", " ", preview.title)[:280]
     if preview.image_url and preview.image_url.startswith("//"):
@@ -203,6 +234,7 @@ async def fetch_preview(url: str, timeout: float = 12.0) -> LinkPreview:
     if not host:
         return fallback
     if not await asyncio.to_thread(_is_public_host, host):
+        log.warning("Ссылку не читаю, хост не публичный: %s", host)
         return fallback
 
     try:
@@ -213,10 +245,15 @@ async def fetch_preview(url: str, timeout: float = 12.0) -> LinkPreview:
             response.raise_for_status()
             content_type = response.headers.get("content-type", "")
             if "html" not in content_type:
+                log.info("По ссылке не html (%s): %s", content_type, url)
                 return fallback
             html = response.text[:MAX_BYTES]
             final_url = clean_url(str(response.url))
-    except (httpx.HTTPError, UnicodeDecodeError):
+    except (httpx.HTTPError, UnicodeDecodeError) as error:
+        # Частый случай: магазин отдаёт 403 роботам или рисует цену уже в
+        # браузере. Позиция всё равно добавится, но без названия и цены —
+        # пусть причина будет видна в логе, а не пропадает молча.
+        log.warning("Не смогла прочитать %s: %s", url, error)
         return fallback
 
     preview = parse_html(html, final_url)

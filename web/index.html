@@ -3,9 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#f3f5ee">
   <title>Наш дом</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><text y='52' font-size='52'>🏡</text></svg>">
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23c7f534'/><g fill='none' stroke='%2322300a' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M8 11h16l-1.3 13H9.3L8 11Z'/><path d='M12 11V9a4 4 0 0 1 8 0v2'/></g></svg>">
+  <link rel="stylesheet" href="/static/styles.css?v=4">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -18,16 +20,31 @@
     <div class="spinner">Загружаю…</div>
   </main>
 
-  <button class="fab" id="fab" hidden>+</button>
+  <button class="fab" id="fab" hidden aria-label="Добавить">
+    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>
+  </button>
 
   <nav class="tabbar">
-    <button data-tab="shopping" class="active"><span class="icon">🛍</span>Покупки</button>
-    <button data-tab="wishlist"><span class="icon">🎁</span>Вишлисты</button>
-    <button data-tab="expenses"><span class="icon">💸</span>Траты</button>
-    <button data-tab="settings"><span class="icon">⚙️</span>Ещё</button>
+    <button data-tab="shopping" class="active">
+      <span class="pill"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1.1 12H6.1L5 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg></span>
+      Покупки
+    </button>
+    <button data-tab="wishlist">
+      <span class="pill"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="9.5" width="18" height="11.5" rx="2.2"/><path d="M3 13.8h18M12 9.5V21"/><path d="M12 9.5S10.6 5 8.6 5a2.2 2.2 0 1 0 0 4.5H12Z"/><path d="M12 9.5S13.4 5 15.4 5a2.2 2.2 0 1 1 0 4.5H12Z"/></svg></span>
+      Вишлисты
+    </button>
+    <button data-tab="expenses">
+      <span class="pill"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="3.2"/><path d="M3 10.2h18"/><circle cx="16.6" cy="15" r="1.3"/></svg></span>
+      Траты
+    </button>
+    <button data-tab="settings">
+      <span class="pill"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="2.2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2.2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2.2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2.2"/></svg></span>
+      Ещё
+    </button>
   </nav>
 
   <div id="modal-root"></div>
-  <script src="/static/app.js"></script>
+  <script src="/static/icons.js?v=4"></script>
+  <script src="/static/app.js?v=4"></script>
 </body>
 </html>
