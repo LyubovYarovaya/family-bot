@@ -98,6 +98,16 @@ class ItemList(Base, TimestampMixin):
     )
 
 
+# Уровни важности позиции. Ноль — «не выбирали», поэтому такие позиции не
+# получают ярлык и уходят в конец списка, а не выдают себя за низкий приоритет.
+ITEM_PRIORITIES: dict[int, str] = {
+    0: "не задан",
+    1: "низкий",
+    2: "средний",
+    3: "высокий",
+}
+
+
 class Item(Base, TimestampMixin):
     __tablename__ = "items"
 
@@ -112,7 +122,8 @@ class Item(Base, TimestampMixin):
     price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    priority: Mapped[int] = mapped_column(Integer, default=0)  # 0 обычный, 1 важный
+    # Приоритет: 0 не задан, 1 низкий, 2 средний, 3 высокий (см. ITEM_PRIORITIES).
+    priority: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(16), default="active")  # active|bought
     bought_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

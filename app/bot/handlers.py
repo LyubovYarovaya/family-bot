@@ -12,7 +12,16 @@ from sqlalchemy.orm import selectinload
 
 from ..config import settings
 from ..db import SessionLocal
-from ..models import PERIODS, Expense, ExpenseCategory, Household, Item, ItemList, User
+from ..models import (
+    ITEM_PRIORITIES,
+    PERIODS,
+    Expense,
+    ExpenseCategory,
+    Household,
+    Item,
+    ItemList,
+    User,
+)
 from ..services import items as items_service
 from ..services.link_parser import extract_urls
 from ..services.quick_expense import parse_expense
@@ -73,9 +82,14 @@ def money(amount, currency: str | None) -> str:
     return f"{float(amount):,.2f}".replace(",", " ").replace(".00", "") + (f" {currency}" if currency else "")
 
 
+PRIORITY_MARKS = {3: "🔴", 2: "🟡", 1: "🟢"}
+
+
 def item_card(item: Item, item_list: ItemList) -> str:
     lines = [f"✅ Добавила в <b>{escape(item_list.emoji)} {escape(item_list.title)}</b>", ""]
     lines.append(f"<b>{escape(item.title)}</b>")
+    if item.priority:
+        lines.append(f"{PRIORITY_MARKS[item.priority]} Приоритет: {ITEM_PRIORITIES[item.priority]}")
     if item.price:
         lines.append(f"💰 {money(item.price, item.currency or settings.default_currency)}")
     if item.shop:
@@ -422,6 +436,31 @@ async def pick_category(callback: CallbackQuery) -> None:
         )
     await callback.message.edit_reply_markup(reply_markup=kb.list_picker(item_id, lists))
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("item:prio:"))
+async def pick_priority(callback: CallbackQuery) -> None:
+    item_id = int(callback.data.split(":")[2])
+    await callback.message.edit_reply_markup(reply_markup=kb.priority_picker(item_id))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("item:setprio:"))
+async def set_priority(callback: CallbackQuery) -> None:
+    _, _, raw_item, raw_level = callback.data.split(":")
+    async with SessionLocal() as session:
+        user = await resolve_user(session, callback)
+        item = await _load_item_for(session, user, int(raw_item))
+        if item is None:
+            await callback.answer("Не нашла товар", show_alert=True)
+            return
+        item.priority = int(raw_level)
+        await session.commit()
+        text = item_card(item, item.list)
+    await callback.message.edit_text(
+        text, reply_markup=kb.item_actions(item.id), disable_web_page_preview=True
+    )
+    await callback.answer(f"Приоритет: {ITEM_PRIORITIES[int(raw_level)]}")
 
 
 @router.callback_query(F.data.startswith("item:back:"))

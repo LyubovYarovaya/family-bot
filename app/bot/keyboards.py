@@ -40,8 +40,21 @@ def item_actions(item_id: int) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="📂 Другая категория", callback_data=f"item:pick:{item_id}"),
                 InlineKeyboardButton(text="🗑", callback_data=f"item:del:{item_id}"),
             ],
+            [InlineKeyboardButton(text="⚡ Приоритет", callback_data=f"item:prio:{item_id}")],
             [InlineKeyboardButton(text="✅ Уже купили", callback_data=f"item:buy:{item_id}")],
         ]
+    )
+
+
+def priority_picker(item_id: int) -> InlineKeyboardMarkup:
+    """Выбор важности. Порядок сверху вниз — от высокого к низкому."""
+    options = [(3, "🔴 Высокий"), (2, "🟡 Средний"), (1, "🟢 Низкий")]
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=title, callback_data=f"item:setprio:{item_id}:{level}")]
+            for level, title in options
+        ]
+        + [[InlineKeyboardButton(text="⬅️ Назад", callback_data=f"item:back:{item_id}")]]
     )
 
 

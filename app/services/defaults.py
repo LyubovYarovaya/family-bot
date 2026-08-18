@@ -12,6 +12,7 @@ DEFAULT_LISTS: list[tuple[str, str, str]] = [
     ("home", "Квартира", "🏠"),
     ("textile", "Текстиль", "🧵"),
     ("baby", "Baby", "🍼"),
+    ("health", "Здоровье", "🩺"),
     ("other", "Разное", "📦"),
 ]
 

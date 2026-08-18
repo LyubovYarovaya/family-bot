@@ -73,6 +73,8 @@ const money = (value, currency) => {
 
 const MONTHS = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
 const PERIODS = { once: 'Разовая', monthly: 'Ежемесячная', quarterly: 'Ежеквартальная', yearly: 'Ежегодная' };
+// 0 — важность не выбирали: такие позиции ярлык не получают.
+const PRIORITIES = { 3: 'высокий', 2: 'средний', 1: 'низкий' };
 
 function toast(text) {
   const node = document.createElement('div');
@@ -173,6 +175,9 @@ function itemCard(item) {
     ? `<div class="meta"><span class="price">${esc(money(item.price, item.currency || state.me.currency))}</span></div>`
     : '';
   const meta = [];
+  if (item.priority) {
+    meta.push(`<span class="badge prio p${item.priority}">${esc(PRIORITIES[item.priority])}</span>`);
+  }
   if (item.shop) meta.push(`<span>${esc(item.shop)}</span>`);
   if (item.created_by) meta.push(`<span>${esc(item.created_by)}</span>`);
   if (item.is_reserved) {
@@ -448,6 +453,13 @@ function openItemSheet(item = null) {
         <input name="currency" value="${esc(item?.currency || state.me.currency)}"></label>
     </div>
     <label class="field"><span>Список</span><select name="list_id">${auto}${bothKinds}</select></label>
+    <label class="field"><span>Приоритет</span>
+      <select name="priority">
+        <option value="0" ${!item?.priority ? 'selected' : ''}>Не выбран</option>
+        <option value="3" ${item?.priority === 3 ? 'selected' : ''}>Высокий</option>
+        <option value="2" ${item?.priority === 2 ? 'selected' : ''}>Средний</option>
+        <option value="1" ${item?.priority === 1 ? 'selected' : ''}>Низкий</option>
+      </select></label>
     <label class="field"><span>Заметка</span><input name="note" value="${esc(item?.note || '')}"></label>
   `, async (data) => {
     const payload = {
@@ -457,6 +469,7 @@ function openItemSheet(item = null) {
       currency: data.currency || null,
       note: data.note || null,
       list_id: data.list_id ? Number(data.list_id) : null,
+      priority: Number(data.priority || 0),
     };
     if (!payload.url && !payload.title) throw new Error('Нужна ссылка или название');
     if (item) {

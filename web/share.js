@@ -8,6 +8,8 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
 ));
 
+const PRIORITIES = { 3: 'очень хочется', 2: 'хочется', 1: 'было бы приятно' };
+
 const money = (value, currency) => {
   if (value === null || value === undefined) return '';
   const num = Number(value);
@@ -86,7 +88,9 @@ function itemCard(item) {
     : '';
   const meta = [];
   if (item.price) meta.push(`<span class="price">${esc(money(item.price, item.currency))}</span>`);
-  if (item.priority > 0) meta.push('<span class="badge">очень хочется</span>');
+  if (item.priority) {
+    meta.push(`<span class="badge prio p${item.priority}">${esc(PRIORITIES[item.priority] || '')}</span>`);
+  }
   if (item.is_reserved) {
     meta.push(`<span class="badge reserved">${icon('ribbon')} ${item.mine ? 'вы забронировали' : 'забронировано: ' + esc(item.reserved_by)}</span>`);
   }

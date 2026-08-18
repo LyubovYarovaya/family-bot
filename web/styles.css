@@ -310,6 +310,11 @@ label.field > span { display: block; font-size: 13px; color: var(--ink-2); margi
 }
 .badge .ic { width: 13px; height: 13px; stroke-width: 2; }
 .badge.reserved { background: var(--acid-soft); color: var(--acid-deep); }
+/* Важность: акцентный цвет оставлен кислотному, поэтому уровни различаем
+   спокойными оттенками, чтобы они не спорили с кнопками действий. */
+.badge.prio.p3 { background: #fdeceb; color: #b8322d; }
+.badge.prio.p2 { background: #fdf3dc; color: #8a6100; }
+.badge.prio.p1 { background: var(--surface-2); color: var(--ink-2); }
 .badge.shared { background: var(--acid-soft); color: var(--acid-deep); }
 
 .spinner { text-align: center; color: var(--ink-3); padding: 34px; }
