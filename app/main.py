@@ -26,6 +26,10 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 async def _start_bot(app: FastAPI) -> None:
     if settings.bot_mode == "off" or not settings.bot_token:
+        runtime.bot_error = (
+            f"не с чем стартовать: BOT_MODE={settings.bot_mode!r}, "
+            f"длина BOT_TOKEN={len(settings.bot_token)}"
+        )
         log.warning("Бот не запущен: BOT_MODE=off или пустой BOT_TOKEN")
         return
 
@@ -35,6 +39,7 @@ async def _start_bot(app: FastAPI) -> None:
     except Exception as error:
         # Неверный токен или нет интернета — не роняем весь процесс: веб-часть
         # пусть живёт, а человеку показываем внятную причину вместо трейсбека.
+        runtime.bot_error = f"Telegram не ответил: {type(error).__name__}: {error}"
         log.error(
             "Не получилось подключиться к Telegram: %s\n"
             "Проверь BOT_TOKEN в .env и интернет, потом перезапусти. "
@@ -43,6 +48,7 @@ async def _start_bot(app: FastAPI) -> None:
         )
         return
     runtime.bot_username = me.username
+    runtime.bot_error = None
     await bot.set_my_commands(COMMANDS)
 
     # Кнопка «Меню» слева от поля ввода — постоянный вход в приложение.
@@ -110,7 +116,16 @@ async def telegram_webhook(
 
 @app.get("/healthz")
 async def healthz() -> dict:
-    return {"ok": True, "bot": runtime.bot_username}
+    """Состояние сервиса. Про токен отдаём только длину — само значение секрет."""
+    return {
+        "ok": True,
+        "bot": runtime.bot_username,
+        "bot_error": runtime.bot_error,
+        "mode": settings.bot_mode,
+        "token_len": len(settings.bot_token),
+        "public_url": settings.base_url,
+        "db": settings.database_url.split("://", 1)[0],
+    }
 
 
 @app.get("/s/{token}")
