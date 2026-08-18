@@ -142,6 +142,30 @@ def _currency_from_text(text: str) -> str | None:
     return best[1] if best else None
 
 
+def _looks_useless(title: str | None, url: str) -> bool:
+    """Заголовок ни о чём: пусто или просто домен.
+
+    Часть магазинов прописывает в og:title название сайта («jura.com.ua»),
+    а настоящее имя страницы кладёт в <title> или <h1>. Такой заголовок в
+    списке бесполезен, поэтому считаем его отсутствующим и идём дальше.
+    """
+    text = re.sub(r"\s+", " ", (title or "")).strip().strip("/").lower()
+    if not text:
+        return True
+    host = shop_name(url)
+    return text in {host, host.replace("www.", ""), host.split(".")[0]}
+
+
+def _title_from_url(url: str) -> str | None:
+    """Последний кусок адреса как имя: /jura-e8-piano-black/ → Jura E8 Piano Black."""
+    slug = [part for part in urlparse(url).path.split("/") if part]
+    if not slug:
+        return None
+    words = re.sub(r"[-_]+", " ", slug[-1]).strip()
+    words = re.sub(r"\.(html?|php|aspx)$", "", words, flags=re.IGNORECASE)
+    return words.capitalize() if len(words) > 2 else None
+
+
 def _walk_jsonld(node, out: list[dict]) -> None:
     if isinstance(node, dict):
         types = node.get("@type")
@@ -166,10 +190,18 @@ def parse_html(html: str, url: str) -> LinkPreview:
                 return tag["content"].strip()
         return None
 
-    preview.title = (
-        meta(("property", "og:title"), ("name", "twitter:title"), ("itemprop", "name"))
-        or (soup.title.string.strip() if soup.title and soup.title.string else None)
-    )
+    # Берём первый заголовок, который действительно что-то называет: og:title
+    # у некоторых магазинов — это имя сайта, а не страницы.
+    heading = soup.find("h1")
+    for candidate in (
+        meta(("property", "og:title"), ("name", "twitter:title"), ("itemprop", "name")),
+        soup.title.string.strip() if soup.title and soup.title.string else None,
+        heading.get_text(" ", strip=True) if heading else None,
+        _title_from_url(url),
+    ):
+        if not _looks_useless(candidate, url):
+            preview.title = candidate
+            break
     preview.image_url = meta(
         ("property", "og:image"), ("property", "og:image:secure_url"),
         ("name", "twitter:image"), ("itemprop", "image"),

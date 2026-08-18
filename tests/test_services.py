@@ -66,6 +66,30 @@ def test_parse_html_reads_json_ld():
     assert preview.price == Decimal("3499.50")
 
 
+def test_title_falls_back_when_og_title_is_just_the_domain():
+    """Магазин прописал в og:title имя сайта — берём осмысленный заголовок ниже."""
+    html = """
+    <html><head>
+      <meta property="og:title" content="jura.com.ua">
+      <title>JURA - Кавоварки та аксесуари</title>
+    </head><body><h1>Кавомашина JURA E8</h1></body></html>
+    """
+    preview = parse_html(html, "https://jura.com.ua/kavomashyny/")
+    assert preview.title == "JURA - Кавоварки та аксесуари"
+
+
+def test_title_falls_back_to_url_slug():
+    """Ни разметки, ни заголовка — собираем имя из адреса, а не оставляем пусто."""
+    preview = parse_html("<html><head></head><body></body></html>",
+                         "https://shop.ua/kava/jura-e8-piano-black/")
+    assert preview.title == "Jura e8 piano black"
+
+
+def test_health_category():
+    assert guess_category("Витамины D3 K2 90 капсул").slug == "health"
+    assert guess_category("Тонометр автоматический на плечо").slug == "health"
+
+
 def test_quick_expense():
     parsed = parse_expense("450 бензин")
     assert parsed.amount == Decimal("450")

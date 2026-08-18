@@ -96,6 +96,11 @@ def item_card(item: Item, item_list: ItemList) -> str:
         lines.append(f"🏬 {escape(item.shop)}")
     if item.url:
         lines.append(f'<a href="{escape(item.url)}">Ссылка на товар</a>')
+    # Часть магазинов рисует цену уже в браузере или закрывается от роботов —
+    # тогда со страницы брать нечего. Говорим об этом, а не молчим.
+    if item.url and not item.price:
+        lines.append("")
+        lines.append("<i>Цену со страницы взять не вышло — впиши в приложении.</i>")
     return "\n".join(lines)
 
 
