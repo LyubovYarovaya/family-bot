@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 from pathlib import Path
 
 from aiogram.types import MenuButtonWebApp, Update, WebAppInfo
@@ -125,6 +126,8 @@ async def healthz() -> dict:
         "token_len": len(settings.bot_token),
         "public_url": settings.base_url,
         "db": settings.database_url.split("://", 1)[0],
+        # Railway подставляет хеш коммита сам — по нему видно, доехала ли правка.
+        "commit": (os.getenv("RAILWAY_GIT_COMMIT_SHA") or "")[:7] or None,
     }
 
 
