@@ -461,6 +461,44 @@ function iconPicker(selected) {
   </label>`;
 }
 
+
+/* Своё фото для позиции. Content-Type не ставим руками — браузер сам допишет
+   границу multipart, без неё сервер разбор не осилит. */
+async function uploadPhoto(itemId, file) {
+  const body = new FormData();
+  body.append('file', file);
+  const response = await fetch(`/api/items/${itemId}/image`, {
+    method: 'POST',
+    headers: { 'X-Telegram-Init-Data': initData },
+    body,
+  });
+  if (!response.ok) {
+    let detail = `Ошибка ${response.status}`;
+    try { detail = (await response.json()).detail || detail; } catch (_) { /* пусто */ }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
+function photoField(item) {
+  if (!item) return '';  // у новой позиции ещё нет id, грузить некуда
+  return `<label class="field"><span>Фото</span>
+    <div class="photo-row">
+      <div class="photo-preview" id="photo-preview">${item.image_url
+        ? `<img src="${esc(item.image_url)}" alt="" onerror="this.remove()">`
+        : icon('inbox')}</div>
+      <div class="photo-actions">
+        <input type="file" accept="image/*" id="photo-input" hidden>
+        <button type="button" class="btn small outline" data-pick-photo>
+          ${icon('plus', 'ic-sm')} ${item.image_url ? 'Заменить фото' : 'Загрузить фото'}
+        </button>
+        ${item.image_url ? `<button type="button" class="btn small danger" data-drop-photo>Убрать</button>` : ''}
+        <div class="dim" style="font-size:12px">JPEG, PNG, WEBP или GIF до 4 МБ</div>
+      </div>
+    </div>
+  </label>`;
+}
+
 function openItemSheet(item = null) {
   const kind = state.tab === 'wishlist' ? 'wishlist' : 'shopping';
   const listId = item ? item.list_id : state.active[kind];
@@ -475,6 +513,7 @@ function openItemSheet(item = null) {
     ${item ? '' : '<div class="dim" style="margin:-6px 0 12px">Название, цену, валюту и картинку возьму со страницы сама — остальное можно не заполнять.</div>'}
     <label class="field"><span>Название ${item ? '' : '(необязательно)'}</span>
       <input name="title" value="${esc(item?.title || '')}"></label>
+    ${photoField(item)}
     <div class="grid-2">
       <label class="field"><span>Цена</span>
         <input name="price" type="number" step="0.01" inputmode="decimal" value="${item?.price ?? ''}"></label>
@@ -508,6 +547,36 @@ function openItemSheet(item = null) {
       await api('/api/items', { method: 'POST', body: payload });
     }
     await refresh();
+  });
+
+  if (!item) return;
+  const form = modalRoot.querySelector('form');
+  const input = form?.querySelector('#photo-input');
+  const preview = form?.querySelector('#photo-preview');
+
+  form?.querySelector('[data-pick-photo]')?.addEventListener('click', () => input?.click());
+  form?.querySelector('[data-drop-photo]')?.addEventListener('click', async () => {
+    try {
+      await api(`/api/items/${item.id}/image`, { method: 'DELETE' });
+      if (preview) preview.innerHTML = icon('inbox');
+      toast('Фото убрала');
+      await refresh();
+    } catch (error) {
+      toast(error.message);
+    }
+  });
+  input?.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      toast('Загружаю…');
+      const updated = await uploadPhoto(item.id, file);
+      if (preview) preview.innerHTML = `<img src="${updated.image_url}?t=${Date.now()}" alt="">`;
+      toast('Фото на месте');
+      await refresh();
+    } catch (error) {
+      toast(error.message);
+    }
   });
 }
 

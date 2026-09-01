@@ -8,7 +8,7 @@ from pathlib import Path
 
 from aiogram.types import MenuButtonWebApp, Update, WebAppInfo
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import runtime
@@ -17,7 +17,7 @@ from .api.expenses import router as expenses_router
 from .api.public import router as public_router
 from .bot import COMMANDS, get_bot, get_dispatcher
 from .config import settings
-from .db import init_db
+from .db import SessionLocal, init_db
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("family-bot")
@@ -129,6 +129,25 @@ async def healthz() -> dict:
         # Railway подставляет хеш коммита сам — по нему видно, доехала ли правка.
         "commit": (os.getenv("RAILWAY_GIT_COMMIT_SHA") or "")[:7] or None,
     }
+
+
+@app.get("/media/{token}")
+async def media(token: str) -> Response:
+    """Отдаёт загруженное фото. Без авторизации: картинку должна увидеть и
+    публичная страница вишлиста. Токен случайный, перебрать чужие нельзя."""
+    from sqlalchemy import select
+
+    from .models import Media
+
+    async with SessionLocal() as session:
+        stored = await session.scalar(select(Media).where(Media.token == token))
+    if stored is None:
+        raise HTTPException(status_code=404, detail="Нет такой картинки")
+    return Response(
+        content=stored.data,
+        media_type=stored.mime,
+        headers={"Cache-Control": "public, max-age=604800, immutable"},
+    )
 
 
 @app.get("/s/{token}")

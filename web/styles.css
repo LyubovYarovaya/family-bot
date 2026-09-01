@@ -270,6 +270,16 @@ label.field { display: block; margin-bottom: 12px; }
 label.field > span { display: block; font-size: 13px; color: var(--ink-2); margin-bottom: 5px; font-weight: 550; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
+/* загрузка своего фото, когда со страницы товара картинку взять не вышло */
+.photo-row { display: flex; gap: 12px; align-items: flex-start; }
+.photo-preview {
+  width: 76px; height: 76px; flex: none; border-radius: 14px;
+  border: 1px solid var(--line); background: var(--surface-2);
+  display: grid; place-items: center; overflow: hidden; color: var(--ink-3);
+}
+.photo-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-actions { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; min-width: 0; }
+
 /* выбор иконки вместо ввода эмодзи руками */
 .icon-picker { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
 .icon-picker input { position: absolute; opacity: 0; pointer-events: none; }

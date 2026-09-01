@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -197,3 +198,22 @@ PERIODS = {
     "quarterly": "Ежеквартальная",
     "yearly": "Ежегодная",
 }
+
+
+class Media(Base, TimestampMixin):
+    """Фото, загруженное руками, когда со страницы товара картинку взять не вышло.
+
+    Держим отдельной таблицей, а не колонкой в items: иначе байты картинки
+    тянулись бы вместе с каждым списком. Отдаётся по случайному токену —
+    по идентификатору чужие фото не переберёшь.
+    """
+
+    __tablename__ = "media"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token: Mapped[str] = mapped_column(String(32), unique=True, index=True, default=new_token)
+    mime: Mapped[str] = mapped_column(String(64), default="image/jpeg")
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    household_id: Mapped[int | None] = mapped_column(
+        ForeignKey("households.id", ondelete="CASCADE"), nullable=True, index=True
+    )

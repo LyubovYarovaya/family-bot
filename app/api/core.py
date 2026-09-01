@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -11,7 +11,7 @@ from .. import runtime
 from ..auth import current_user
 from ..config import settings
 from ..db import get_session
-from ..models import Household, Item, ItemList, User, new_token
+from ..models import Household, Item, ItemList, Media, User, new_token
 from ..schemas import (
     ItemCreate,
     ItemOut,
@@ -313,3 +313,64 @@ async def personal_wishlist(
     wishlist = await ensure_personal_wishlist(session, user)
     await session.commit()
     return list_out(wishlist, owner_name=user.display_name)
+
+
+# Форматы, которые точно покажет любой браузер. Экзотику не принимаем, чтобы
+# не отдавать наружу непонятно что под видом картинки.
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+MAX_IMAGE_BYTES = 4 * 1024 * 1024
+
+
+@router.post("/items/{item_id}/image", response_model=ItemOut)
+async def upload_item_image(
+    item_id: int,
+    file: UploadFile = File(...),
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
+) -> ItemOut:
+    """Своё фото для позиции — когда со страницы товара картинку взять не вышло."""
+    item = await _load_item(session, user, item_id)
+
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Подойдёт JPEG, PNG, WEBP или GIF",
+        )
+    data = await file.read(MAX_IMAGE_BYTES + 1)
+    if not data:
+        raise HTTPException(status_code=400, detail="Файл пустой")
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="Картинка тяжелее 4 МБ")
+
+    media = Media(
+        token=new_token(),
+        mime=file.content_type,
+        data=data,
+        household_id=user.household_id,
+    )
+    session.add(media)
+    await session.flush()
+    # Адрес относительный: приложение и публичная страница живут на том же
+    # домене, а он у хостинга может смениться — абсолютный протух бы.
+    item.image_url = f"/media/{media.token}"
+    await session.commit()
+    await session.refresh(item)
+    return item_out(item)
+
+
+@router.delete("/items/{item_id}/image", response_model=ItemOut)
+async def delete_item_image(
+    item_id: int,
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
+) -> ItemOut:
+    item = await _load_item(session, user, item_id)
+    if item.image_url and item.image_url.startswith("/media/"):
+        token = item.image_url.rsplit("/", 1)[-1]
+        stored = await session.scalar(select(Media).where(Media.token == token))
+        if stored is not None:
+            await session.delete(stored)
+    item.image_url = None
+    await session.commit()
+    await session.refresh(item)
+    return item_out(item)

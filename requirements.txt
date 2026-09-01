@@ -10,3 +10,4 @@ lxml>=5.2
 pydantic>=2.8
 pydantic-settings>=2.4
 python-dateutil>=2.9
+python-multipart>=0.0.9  # приём файлов в форме (загрузка фото)
