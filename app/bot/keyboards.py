@@ -33,17 +33,22 @@ def open_app_button(text: str = "🛍 Открыть приложение") -> I
     )
 
 
-def item_actions(item_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="📂 Другая категория", callback_data=f"item:pick:{item_id}"),
-                InlineKeyboardButton(text="🗑", callback_data=f"item:del:{item_id}"),
-            ],
-            [InlineKeyboardButton(text="⚡ Приоритет", callback_data=f"item:prio:{item_id}")],
-            [InlineKeyboardButton(text="✅ Уже купили", callback_data=f"item:buy:{item_id}")],
+def item_actions(item_id: int, with_priority: bool = True) -> InlineKeyboardMarkup:
+    """Кнопки под карточкой товара.
+
+    В вишлистах приоритет не показываем: там важность выражают самим фактом
+    попадания в список, а гостю она ничего не говорит.
+    """
+    rows = [
+        [
+            InlineKeyboardButton(text="📂 Другая категория", callback_data=f"item:pick:{item_id}"),
+            InlineKeyboardButton(text="🗑", callback_data=f"item:del:{item_id}"),
         ]
-    )
+    ]
+    if with_priority:
+        rows.append([InlineKeyboardButton(text="⚡ Приоритет", callback_data=f"item:prio:{item_id}")])
+    rows.append([InlineKeyboardButton(text="✅ Уже купили", callback_data=f"item:buy:{item_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def priority_picker(item_id: int) -> InlineKeyboardMarkup:

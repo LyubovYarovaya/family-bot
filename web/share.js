@@ -1,6 +1,8 @@
 /* Публичная страница списка: гость смотрит и бронирует подарки. */
 
 const token = location.pathname.split('/').filter(Boolean).pop();
+// Тип списка приходит вместе с данными: в вишлистах важность не показываем.
+let listKind = 'wishlist';
 const itemsNode = document.getElementById('items');
 const modalRoot = document.getElementById('modal-root');
 
@@ -88,7 +90,7 @@ function itemCard(item) {
     : '';
   const meta = [];
   if (item.price) meta.push(`<span class="price">${esc(money(item.price, item.currency))}</span>`);
-  if (item.priority) {
+  if (item.priority && listKind !== 'wishlist') {
     meta.push(`<span class="badge prio p${item.priority}">${esc(PRIORITIES[item.priority] || '')}</span>`);
   }
   if (item.is_reserved) {
@@ -121,6 +123,7 @@ async function load() {
   try {
     const data = await api(`/api/public/${encodeURIComponent(token)}?secret=${encodeURIComponent(guestSecret())}`);
     document.getElementById('mark').innerHTML = iconForEmoji(data.emoji);
+    listKind = data.kind || 'wishlist';
     document.getElementById('title').textContent = data.title;
     document.title = data.title;
     document.getElementById('subtitle').textContent = data.owner_name

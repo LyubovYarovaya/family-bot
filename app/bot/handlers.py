@@ -88,7 +88,7 @@ PRIORITY_MARKS = {3: "🔴", 2: "🟡", 1: "🟢"}
 def item_card(item: Item, item_list: ItemList) -> str:
     lines = [f"✅ Добавила в <b>{escape(item_list.emoji)} {escape(item_list.title)}</b>", ""]
     lines.append(f"<b>{escape(item.title)}</b>")
-    if item.priority:
+    if item.priority and item_list.kind != "wishlist":
         lines.append(f"{PRIORITY_MARKS[item.priority]} Приоритет: {ITEM_PRIORITIES[item.priority]}")
     if item.price:
         lines.append(f"💰 {money(item.price, item.currency or settings.default_currency)}")
@@ -366,7 +366,7 @@ async def handle_link(message: Message) -> None:
                     text += "\n\n<i>Категорию выбрала наугад — поправь, если что.</i>"
                 await message.answer(
                     text,
-                    reply_markup=kb.item_actions(item.id),
+                    reply_markup=kb.item_actions(item.id, item_list.kind != "wishlist"),
                     disable_web_page_preview=not item.image_url,
                 )
     finally:
@@ -462,8 +462,9 @@ async def set_priority(callback: CallbackQuery) -> None:
         item.priority = int(raw_level)
         await session.commit()
         text = item_card(item, item.list)
+        with_priority = item.list.kind != "wishlist"
     await callback.message.edit_text(
-        text, reply_markup=kb.item_actions(item.id), disable_web_page_preview=True
+        text, reply_markup=kb.item_actions(item.id, with_priority), disable_web_page_preview=True
     )
     await callback.answer(f"Приоритет: {ITEM_PRIORITIES[int(raw_level)]}")
 
@@ -471,7 +472,13 @@ async def set_priority(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("item:back:"))
 async def back_to_item(callback: CallbackQuery) -> None:
     item_id = int(callback.data.split(":")[2])
-    await callback.message.edit_reply_markup(reply_markup=kb.item_actions(item_id))
+    async with SessionLocal() as session:
+        user = await resolve_user(session, callback)
+        item = await _load_item_for(session, user, item_id)
+        with_priority = item is None or item.list.kind != "wishlist"
+    await callback.message.edit_reply_markup(
+        reply_markup=kb.item_actions(item_id, with_priority)
+    )
     await callback.answer()
 
 
@@ -488,8 +495,9 @@ async def move_item(callback: CallbackQuery) -> None:
         item.list_id = target.id
         await session.commit()
         text = item_card(item, target)
+        with_priority = target.kind != "wishlist"
     await callback.message.edit_text(
-        text, reply_markup=kb.item_actions(item.id), disable_web_page_preview=True
+        text, reply_markup=kb.item_actions(item.id, with_priority), disable_web_page_preview=True
     )
     await callback.answer("Переложила ✅")
 

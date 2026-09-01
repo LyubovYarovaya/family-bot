@@ -97,24 +97,41 @@ async def test_share_and_reserve_flow(client):
     assert (await client.get(f"/api/public/{token}")).status_code == 404
 
 
-async def test_personal_wishlist_hides_reservations_from_owner(client):
+async def test_owner_sees_reservations_and_can_hide_them(client):
+    """По умолчанию владелец видит, что подарок занят, — иначе купит его сам.
+
+    Режим сюрприза остаётся, но включается вручную: тогда брони от владельца
+    прячутся, а гости по-прежнему видят их друг у друга.
+    """
     lists = (await client.get("/api/lists")).json()
     personal = next(row for row in lists if row["kind"] == "wishlist" and row["owner_id"])
-    item = (await client.post("/api/items", json={"title": "Книга", "list_id": personal["id"]})).json()
+    assert personal["hide_reservations_from_owner"] is False
 
+    item = (await client.post("/api/items", json={"title": "Книга", "list_id": personal["id"]})).json()
     shared = (await client.patch(f"/api/lists/{personal['id']}", json={"is_shared": True})).json()
     token = shared["share_url"].rsplit("/", 1)[-1]
     await client.post(
         f"/api/public/{token}/items/{item['id']}/reserve", json={"name": "Аня", "secret": "g"}
     )
 
-    # Гость бронь видит...
+    # Гость видит бронь...
     public = (await client.get(f"/api/public/{token}")).json()
     assert public["items"][0]["is_reserved"] is True
-    # ...а владелец вишлиста — нет.
+    # ...и другой гость, без всякой авторизации, видит её тоже.
+    other_guest = (await client.get(f"/api/public/{token}?secret=another")).json()
+    assert other_guest["items"][0]["is_reserved"] is True
+    assert other_guest["items"][0]["mine"] is False
+    # ...и владелец теперь тоже.
     owner_view = (await client.get(f"/api/lists/{personal['id']}/items")).json()
-    assert owner_view[0]["is_reserved"] is False
-    assert owner_view[0]["reserved_by"] is None
+    assert owner_view[0]["is_reserved"] is True
+    assert owner_view[0]["reserved_by"] == "Аня"
+
+    # Включаем сюрприз — от владельца брони прячутся, от гостей нет.
+    await client.patch(f"/api/lists/{personal['id']}", json={"hide_reservations_from_owner": True})
+    hidden = (await client.get(f"/api/lists/{personal['id']}/items")).json()
+    assert hidden[0]["is_reserved"] is False
+    assert hidden[0]["reserved_by"] is None
+    assert (await client.get(f"/api/public/{token}")).json()["items"][0]["is_reserved"] is True
 
 
 async def test_auth_required_without_dev_id(client, monkeypatch):

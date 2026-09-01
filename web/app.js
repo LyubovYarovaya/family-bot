@@ -49,6 +49,7 @@ const state = {
   active: { shopping: null, wishlist: null },
   items: [],
   showBought: false,
+  viewKind: 'shopping',
   expenseCategories: [],
   month: new Date(),
   expenses: [],
@@ -175,7 +176,8 @@ function itemCard(item) {
     ? `<div class="meta"><span class="price">${esc(money(item.price, item.currency || state.me.currency))}</span></div>`
     : '';
   const meta = [];
-  if (item.priority) {
+  // В вишлистах приоритет не показываем: там его не выставляют.
+  if (item.priority && state.viewKind !== 'wishlist') {
     meta.push(`<span class="badge prio p${item.priority}">${esc(PRIORITIES[item.priority])}</span>`);
   }
   if (item.shop) meta.push(`<span>${esc(item.shop)}</span>`);
@@ -210,6 +212,7 @@ function currentList(kind) {
 }
 
 function renderItemsView(kind) {
+  state.viewKind = kind;
   const list = currentList(kind);
   const visible = state.items.filter((i) => state.showBought || i.status === 'active');
   const total = visible
@@ -256,6 +259,11 @@ function renderItemsView(kind) {
         </button>
         ${list.is_shared ? `<button class="btn small primary" data-send-list="${list.id}">
           ${icon('share', 'ic-sm')} Отправить</button>` : ''}
+        ${list.kind === 'wishlist' && list.owner_id === state.me.user.id ? `
+          <button class="btn small outline" data-toggle-surprise="${list.id}">
+            ${icon(list.hide_reservations_from_owner ? 'eyeOff' : 'eye', 'ic-sm')}
+            ${list.hide_reservations_from_owner ? 'Брони скрыты' : 'Брони видны'}
+          </button>` : ''}
         <span class="spacer" style="flex:1"></span>
         <button class="btn small icon outline" data-rename-list="${list.id}" aria-label="Переименовать">${icon('pencil', 'ic-sm')}</button>
         <button class="btn small icon danger" data-delete-list="${list.id}" aria-label="Удалить список">${icon('trash', 'ic-sm')}</button>
@@ -474,13 +482,13 @@ function openItemSheet(item = null) {
         <input name="currency" value="${esc(item?.currency || state.me.currency)}"></label>
     </div>
     <label class="field"><span>Список</span><select name="list_id">${auto}${bothKinds}</select></label>
-    <label class="field"><span>Приоритет</span>
+    ${kind === 'wishlist' ? '' : `<label class="field"><span>Приоритет</span>
       <select name="priority">
         <option value="0" ${!item?.priority ? 'selected' : ''}>Не выбран</option>
         <option value="3" ${item?.priority === 3 ? 'selected' : ''}>Высокий</option>
         <option value="2" ${item?.priority === 2 ? 'selected' : ''}>Средний</option>
         <option value="1" ${item?.priority === 1 ? 'selected' : ''}>Низкий</option>
-      </select></label>
+      </select></label>`}
     <label class="field"><span>Заметка</span><input name="note" value="${esc(item?.note || '')}"></label>
   `, async (data) => {
     const payload = {
@@ -617,7 +625,7 @@ function copy(text) {
 document.addEventListener('click', async (event) => {
   const target = event.target.closest('[data-pick-list], [data-new-list], [data-toggle-bought], [data-edit-item],'
     + '[data-delete-item], [data-toggle-shown], [data-share-list], [data-rename-list], [data-delete-list],'
-    + '[data-copy], [data-send-list], [data-send-invite], [data-month], [data-edit-expense], [data-delete-expense], [data-pay-template],'
+    + '[data-copy], [data-send-list], [data-send-invite], [data-toggle-surprise], [data-month], [data-edit-expense], [data-delete-expense], [data-pay-template],'
     + '[data-new-template], [data-new-expense-category], [data-delete-expense-category], [data-unshare]');
   if (!target) return;
   const data = target.dataset;
@@ -660,6 +668,12 @@ document.addEventListener('click', async (event) => {
       await refresh();
     } else if (data.copy) {
       copy(data.copy);
+    } else if (data.toggleSurprise) {
+      const wish = state.lists.find((l) => l.id === Number(data.toggleSurprise));
+      const hide = !wish.hide_reservations_from_owner;
+      await api(`/api/lists/${wish.id}`, { method: 'PATCH', body: { hide_reservations_from_owner: hide } });
+      toast(hide ? 'Брони спрятаны — сюрприз сохранится' : 'Брони теперь видны тебе');
+      await refresh();
     } else if (data.sendInvite) {
       sendLink(data.sendInvite, 'Наши списки и вишлисты');
     } else if (data.sendList) {

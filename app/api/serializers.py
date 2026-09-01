@@ -27,6 +27,7 @@ def list_out(
         position=item_list.position,
         is_shared=item_list.is_shared,
         share_url=settings.share_url(item_list.share_token) if item_list.is_shared else None,
+        hide_reservations_from_owner=item_list.hide_reservations_from_owner,
         active_count=active_count,
         bought_count=bought_count,
         total_price=total_price,

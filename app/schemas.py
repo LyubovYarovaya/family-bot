@@ -33,6 +33,7 @@ class ListOut(BaseModel):
     position: int
     is_shared: bool
     share_url: str | None = None
+    hide_reservations_from_owner: bool = False
     active_count: int = 0
     bought_count: int = 0
     total_price: float | None = None

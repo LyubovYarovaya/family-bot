@@ -159,7 +159,7 @@ async def create_list(
         emoji=payload.emoji or "📦",
         owner_id=user.id if (payload.kind == "wishlist" and payload.personal) else None,
         position=(max_position or 0) + 1,
-        hide_reservations_from_owner=payload.kind == "wishlist" and payload.personal,
+        hide_reservations_from_owner=False,  # сюрприз включается вручную, см. defaults
     )
     session.add(item_list)
     await session.commit()

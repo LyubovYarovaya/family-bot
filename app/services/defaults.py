@@ -86,7 +86,10 @@ async def ensure_personal_wishlist(session: AsyncSession, user: User) -> ItemLis
         emoji="⭐",
         owner_id=user.id,
         position=10,
-        hide_reservations_from_owner=True,
+        # Владелец по умолчанию видит, что уже забронировано, — иначе он не
+        # знает, что подарок занят, и может купить это сам. Режим сюрприза
+        # включается переключателем в приложении.
+        hide_reservations_from_owner=False,
     )
     session.add(wishlist)
     await session.flush()
