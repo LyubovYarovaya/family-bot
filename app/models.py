@@ -92,6 +92,9 @@ class ItemList(Base, TimestampMixin):
     is_shared: Mapped[bool] = mapped_column(Boolean, default=False)
     # Для личного вишлиста прячем брони от владельца — чтобы подарок остался сюрпризом.
     hide_reservations_from_owner: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Цены на публичной странице. У вишлистов по умолчанию скрыты: список
+    # подарков не должен выглядеть прайс-листом.
+    show_prices_to_guests: Mapped[bool] = mapped_column(Boolean, default=True)
 
     owner: Mapped[User | None] = relationship()
     items: Mapped[list[Item]] = relationship(

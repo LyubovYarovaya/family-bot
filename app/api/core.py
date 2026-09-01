@@ -160,6 +160,7 @@ async def create_list(
         owner_id=user.id if (payload.kind == "wishlist" and payload.personal) else None,
         position=(max_position or 0) + 1,
         hide_reservations_from_owner=False,  # сюрприз включается вручную, см. defaults
+        show_prices_to_guests=payload.kind != "wishlist",
     )
     session.add(item_list)
     await session.commit()

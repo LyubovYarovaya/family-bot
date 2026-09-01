@@ -61,6 +61,7 @@ async def bootstrap_household(session: AsyncSession, household: Household) -> No
             emoji="🎁",
             owner_id=None,
             position=0,
+            show_prices_to_guests=False,
         )
     )
     await session.flush()
@@ -90,6 +91,8 @@ async def ensure_personal_wishlist(session: AsyncSession, user: User) -> ItemLis
         # знает, что подарок занят, и может купить это сам. Режим сюрприза
         # включается переключателем в приложении.
         hide_reservations_from_owner=False,
+        # Гостям список подарков показываем без цен — включается вручную.
+        show_prices_to_guests=False,
     )
     session.add(wishlist)
     await session.flush()

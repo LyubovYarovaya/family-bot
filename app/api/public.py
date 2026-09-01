@@ -61,7 +61,15 @@ async def public_list(
         owner_name=item_list.owner.display_name if item_list.owner else None,
         household_title=household.title if household else "",
         hide_from_owner=item_list.hide_reservations_from_owner,
-        items=[public_item_out(item, secret, hide_reservation=False) for item in items],
+        items=[
+            public_item_out(
+                item,
+                secret,
+                hide_reservation=False,
+                hide_price=not item_list.show_prices_to_guests,
+            )
+            for item in items
+        ],
     )
 
 

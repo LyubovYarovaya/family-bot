@@ -34,6 +34,7 @@ class ListOut(BaseModel):
     is_shared: bool
     share_url: str | None = None
     hide_reservations_from_owner: bool = False
+    show_prices_to_guests: bool = True
     active_count: int = 0
     bought_count: int = 0
     total_price: float | None = None
@@ -52,6 +53,7 @@ class ListUpdate(BaseModel):
     position: int | None = None
     is_shared: bool | None = None
     hide_reservations_from_owner: bool | None = None
+    show_prices_to_guests: bool | None = None
 
 
 class ItemOut(BaseModel):

@@ -259,6 +259,11 @@ function renderItemsView(kind) {
         </button>
         ${list.is_shared ? `<button class="btn small primary" data-send-list="${list.id}">
           ${icon('share', 'ic-sm')} Отправить</button>` : ''}
+        ${list.is_shared ? `
+          <button class="btn small outline" data-toggle-prices="${list.id}">
+            ${icon(list.show_prices_to_guests ? 'eye' : 'eyeOff', 'ic-sm')}
+            ${list.show_prices_to_guests ? 'Цены видны гостям' : 'Цены скрыты'}
+          </button>` : ''}
         ${list.kind === 'wishlist' && list.owner_id === state.me.user.id ? `
           <button class="btn small outline" data-toggle-surprise="${list.id}">
             ${icon(list.hide_reservations_from_owner ? 'eyeOff' : 'eye', 'ic-sm')}
@@ -694,7 +699,7 @@ function copy(text) {
 document.addEventListener('click', async (event) => {
   const target = event.target.closest('[data-pick-list], [data-new-list], [data-toggle-bought], [data-edit-item],'
     + '[data-delete-item], [data-toggle-shown], [data-share-list], [data-rename-list], [data-delete-list],'
-    + '[data-copy], [data-send-list], [data-send-invite], [data-toggle-surprise], [data-month], [data-edit-expense], [data-delete-expense], [data-pay-template],'
+    + '[data-copy], [data-send-list], [data-send-invite], [data-toggle-surprise], [data-toggle-prices], [data-month], [data-edit-expense], [data-delete-expense], [data-pay-template],'
     + '[data-new-template], [data-new-expense-category], [data-delete-expense-category], [data-unshare]');
   if (!target) return;
   const data = target.dataset;
@@ -737,6 +742,12 @@ document.addEventListener('click', async (event) => {
       await refresh();
     } else if (data.copy) {
       copy(data.copy);
+    } else if (data.togglePrices) {
+      const target = state.lists.find((l) => l.id === Number(data.togglePrices));
+      const show = !target.show_prices_to_guests;
+      await api(`/api/lists/${target.id}`, { method: 'PATCH', body: { show_prices_to_guests: show } });
+      toast(show ? 'Гости видят цены' : 'Цены от гостей скрыты');
+      await refresh();
     } else if (data.toggleSurprise) {
       const wish = state.lists.find((l) => l.id === Number(data.toggleSurprise));
       const hide = !wish.hide_reservations_from_owner;

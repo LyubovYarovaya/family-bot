@@ -99,6 +99,37 @@ async def test_share_and_reserve_flow(client):
     assert (await client.get(f"/api/public/{token}")).status_code == 404
 
 
+async def test_guests_do_not_see_wishlist_prices(client):
+    """Вишлист по ссылке — не прайс-лист: цены гостям по умолчанию не видны."""
+    lists = (await client.get("/api/lists")).json()
+    wishlist = next(row for row in lists if row["kind"] == "wishlist")
+    assert wishlist["show_prices_to_guests"] is False
+
+    await client.post(
+        "/api/items",
+        json={"title": "Кофемашина", "price": 42000, "currency": "UAH", "list_id": wishlist["id"]},
+    )
+    shared = (await client.patch(f"/api/lists/{wishlist['id']}", json={"is_shared": True})).json()
+    token = shared["share_url"].rsplit("/", 1)[-1]
+
+    guest = (await client.get(f"/api/public/{token}")).json()["items"][0]
+    assert guest["price"] is None and guest["currency"] is None
+    # ...а семья цену видит по-прежнему.
+    inside = (await client.get(f"/api/lists/{wishlist['id']}/items")).json()[0]
+    assert inside["price"] == 42000
+
+    # Захотели показать — показали.
+    await client.patch(f"/api/lists/{wishlist['id']}", json={"show_prices_to_guests": True})
+    assert (await client.get(f"/api/public/{token}")).json()["items"][0]["price"] == 42000
+
+
+async def test_shopping_list_keeps_prices_for_guests(client):
+    """В категориях покупок цена гостю полезна — там ничего не прячем."""
+    lists = (await client.get("/api/lists")).json()
+    shopping = next(row for row in lists if row["kind"] == "shopping")
+    assert shopping["show_prices_to_guests"] is True
+
+
 async def test_owner_sees_reservations_and_can_hide_them(client):
     """По умолчанию владелец видит, что подарок занят, — иначе купит его сам.
 

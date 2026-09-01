@@ -28,6 +28,7 @@ def list_out(
         is_shared=item_list.is_shared,
         share_url=settings.share_url(item_list.share_token) if item_list.is_shared else None,
         hide_reservations_from_owner=item_list.hide_reservations_from_owner,
+        show_prices_to_guests=item_list.show_prices_to_guests,
         active_count=active_count,
         bought_count=bought_count,
         total_price=total_price,
@@ -55,15 +56,22 @@ def item_out(item: Item, viewer: User | None = None, hide_reservation: bool = Fa
     )
 
 
-def public_item_out(item: Item, secret: str | None, hide_reservation: bool) -> PublicItemOut:
+def public_item_out(
+    item: Item,
+    secret: str | None,
+    hide_reservation: bool,
+    hide_price: bool = False,
+) -> PublicItemOut:
     reserved = item.reserved_at is not None
     return PublicItemOut(
         id=item.id,
         title=item.title,
         url=item.url,
         image_url=item.image_url,
-        price=float(item.price) if item.price is not None else None,
-        currency=item.currency,
+        # Цену гостям можно не показывать — тогда её просто нет в ответе,
+        # а не приходит и прячется на клиенте.
+        price=None if hide_price else (float(item.price) if item.price is not None else None),
+        currency=None if hide_price else item.currency,
         note=item.note,
         priority=item.priority,
         status=item.status,
