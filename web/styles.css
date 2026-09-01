@@ -346,4 +346,17 @@ body.public header.public-top .mark .ic { width: 32px; height: 32px; stroke-widt
 body.public header.public-top h1 { margin: 0 0 4px; font-size: 26px; font-weight: 700; letter-spacing: -.03em; }
 body.public header.public-top p { margin: 0; color: var(--ink-3); font-size: 14px; }
 body.public main { padding: 0; }
+/* Выбор порядка на публичной странице: подпись и компактный список справа,
+   чтобы строка не спорила с карточками подарков. */
+body.public .sort-bar {
+  display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+  margin: 0 0 12px;
+}
+body.public .sort-bar .sort-label {
+  font-size: 13px; color: var(--ink-3); font-weight: 550;
+}
+body.public .sort-bar select {
+  width: auto; padding: 7px 11px; font-size: 13px; font-weight: 550;
+  border-radius: var(--pill); background: var(--surface); color: var(--ink);
+}
 body.public .foot { text-align: center; color: var(--ink-3); font-size: 12px; margin: 26px 0 10px; line-height: 1.6; }

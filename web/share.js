@@ -86,6 +86,77 @@ function itemCard(item) {
   </div>`;
 }
 
+
+/* Порядок списка выбирает сам гость. Сортируем на месте: список приходит
+   целиком одним ответом, поэтому переключение мгновенное и сервер не трогаем.
+   Выбор запоминается в браузере гостя — вернётся по ссылке, порядок тот же. */
+const SORTS = {
+  free: {
+    label: 'Сначала свободные',
+    sort: (a, b) => Number(a.is_reserved) - Number(b.is_reserved) || b.id - a.id,
+  },
+  fresh: {
+    label: 'Сначала новые',
+    sort: (a, b) => b.id - a.id,
+  },
+  title: {
+    label: 'По названию',
+    sort: (a, b) => String(a.title).localeCompare(String(b.title), 'ru'),
+  },
+  cheap: {
+    label: 'Сначала дешёвые',
+    needsPrice: true,
+    sort: (a, b) => priceOrder(a) - priceOrder(b),
+  },
+  pricey: {
+    label: 'Сначала дорогие',
+    needsPrice: true,
+    sort: (a, b) => priceOrder(b) - priceOrder(a),
+  },
+};
+
+// Позиции без цены не должны перемешиваться с ценами — отправляем их в конец.
+const priceOrder = (item) => (item.price === null || item.price === undefined
+  ? Number.POSITIVE_INFINITY
+  : Number(item.price));
+
+function currentSort() {
+  try {
+    const saved = localStorage.getItem('guest_sort');
+    if (saved && SORTS[saved]) return saved;
+  } catch (_) { /* приватный режим — берём порядок по умолчанию */ }
+  return 'free';
+}
+
+function renderSort(items) {
+  const box = document.getElementById('sort');
+  if (!box) return;
+  // Один подарок сортировать незачем.
+  if (items.length < 2) { box.hidden = true; return; }
+  const withPrice = items.some((item) => item.price !== null && item.price !== undefined);
+  const options = Object.entries(SORTS).filter(([, cfg]) => !cfg.needsPrice || withPrice);
+  const active = currentSort();
+  box.hidden = false;
+  box.innerHTML = `<label class="sort-label" for="sort-select">Порядок</label>
+    <select id="sort-select">${options.map(([key, cfg]) =>
+      `<option value="${key}" ${key === active ? 'selected' : ''}>${esc(cfg.label)}</option>`).join('')}</select>`;
+  box.querySelector('select').addEventListener('change', (event) => {
+    try { localStorage.setItem('guest_sort', event.target.value); } catch (_) { /* ничего */ }
+    paint();
+  });
+}
+
+let loaded = [];
+
+function paint() {
+  const order = SORTS[currentSort()] || SORTS.free;
+  const items = [...loaded].sort(order.sort);
+  itemsNode.innerHTML = items.length
+    ? items.map(itemCard).join('')
+    : `<div class="empty"><div class="big">${icon('inbox')}</div>Список пока пуст</div>`;
+  renderSort(loaded);
+}
+
 async function load() {
   try {
     const data = await api(`/api/public/${encodeURIComponent(token)}?secret=${encodeURIComponent(guestSecret())}`);
@@ -103,11 +174,12 @@ async function load() {
         + 'Владелец вишлиста брони не видит — сюрприз останется сюрпризом.';
     }
 
-    itemsNode.innerHTML = data.items.length
-      ? data.items.map(itemCard).join('')
-      : `<div class="empty"><div class="big">${icon('inbox')}</div>Список пока пуст</div>`;
+    loaded = data.items;
+    paint();
   } catch (error) {
     document.getElementById('mark').innerHTML = icon('lock');
+    const box = document.getElementById('sort');
+    if (box) box.hidden = true;
     itemsNode.innerHTML = `<div class="empty"><div class="big">${icon('sad')}</div>${esc(error.message)}</div>`;
     document.getElementById('title').textContent = 'Список недоступен';
   }
