@@ -221,8 +221,25 @@ function renderItemsView(kind) {
     : `<div class="empty"><div class="big">${icon(kind === 'wishlist' ? 'gift' : 'bag')}</div>
         Пусто. Кинь боту ссылку на товар — он сам вытянет название, цену и картинку.</div>`;
 
+  // Вишлисты имеют смысл вдвоём — если семья пока из одного человека,
+  // подсказываем, как позвать второго, прямо здесь.
+  const alone = kind === 'wishlist' && (state.me.members || []).length < 2;
+  const invite = state.me.invite_url || '';
+  const inviteBlock = alone ? `<div class="panel">
+      <h3>${icon('users')} Пока ты одна в семье</h3>
+      <div class="dim">Отправь эту ссылку второй половинке — вишлисты, списки и траты станут общими,
+        и вы будете видеть списки друг друга.</div>
+      <div class="share-box">
+        <input readonly value="${esc(invite)}">
+        <button class="btn small outline" data-copy="${esc(invite)}">${icon('copy', 'ic-sm')} Копировать</button>
+      </div>
+      ${invite.startsWith('http') ? `<button class="btn small primary block" data-send-invite="${esc(invite)}"
+        style="margin-top:10px">${icon('share', 'ic-sm')} Отправить в Telegram</button>` : ''}
+    </div>` : '';
+
   view.innerHTML = `
     ${listChips(kind)}
+    ${inviteBlock}
     ${list ? `<div class="panel">
       <div class="list-head">
         ${iconBadge(list.emoji)}
@@ -234,9 +251,11 @@ function renderItemsView(kind) {
           ${icon(state.showBought ? 'eyeOff' : 'eye', 'ic-sm')}
           ${state.showBought ? 'Скрыть купленное' : 'Показать купленное'}
         </button>
-        <button class="btn small ${list.is_shared ? 'outline' : 'outline'}" data-share-list="${list.id}">
-          ${icon(list.is_shared ? 'link' : 'share', 'ic-sm')} ${list.is_shared ? 'Ссылка' : 'Поделиться'}
+        <button class="btn small outline" data-share-list="${list.id}">
+          ${icon(list.is_shared ? 'link' : 'share', 'ic-sm')} ${list.is_shared ? 'Ссылка' : 'Открыть доступ'}
         </button>
+        ${list.is_shared ? `<button class="btn small primary" data-send-list="${list.id}">
+          ${icon('share', 'ic-sm')} Отправить</button>` : ''}
         <span class="spacer" style="flex:1"></span>
         <button class="btn small icon outline" data-rename-list="${list.id}" aria-label="Переименовать">${icon('pencil', 'ic-sm')}</button>
         <button class="btn small icon danger" data-delete-list="${list.id}" aria-label="Удалить список">${icon('trash', 'ic-sm')}</button>
@@ -351,7 +370,9 @@ function renderSettings() {
       <h3>${icon('link')} Открытые ссылки</h3>
       ${shared.length ? shared.map((l) => `<div class="row">
         <div class="label">${iconBadge(l.emoji, 'sm')} ${esc(l.title)}</div>
-        <div class="value"><button class="btn small icon outline" data-copy="${esc(l.share_url)}" aria-label="Копировать">${icon('copy', 'ic-sm')}</button>
+        <div class="value">
+        <button class="btn small icon outline" data-send-list="${l.id}" aria-label="Отправить">${icon('share', 'ic-sm')}</button>
+        <button class="btn small icon outline" data-copy="${esc(l.share_url)}" aria-label="Копировать">${icon('copy', 'ic-sm')}</button>
         <button class="btn small danger" data-unshare="${l.id}">Закрыть</button></div>
       </div>`).join('') : '<div class="dim">Пока ничего не расшарено. Открой список и нажми «Поделиться».</div>'}
     </div>
@@ -578,6 +599,15 @@ async function shareList(listId) {
   copy(list.share_url);
 }
 
+/* Родной шеринг Telegram: открывает выбор чата и вставляет ссылку.
+   Вне Telegram (обычный браузер) — та же страница в новой вкладке. */
+function sendLink(url, title) {
+  const share = 'https://t.me/share/url?url=' + encodeURIComponent(url)
+    + '&text=' + encodeURIComponent(`${title} — список подарков`);
+  if (tg?.openTelegramLink) tg.openTelegramLink(share);
+  else window.open(share, '_blank', 'noopener');
+}
+
 function copy(text) {
   navigator.clipboard?.writeText(text)
     .then(() => toast('Скопировано'))
@@ -587,7 +617,7 @@ function copy(text) {
 document.addEventListener('click', async (event) => {
   const target = event.target.closest('[data-pick-list], [data-new-list], [data-toggle-bought], [data-edit-item],'
     + '[data-delete-item], [data-toggle-shown], [data-share-list], [data-rename-list], [data-delete-list],'
-    + '[data-copy], [data-month], [data-edit-expense], [data-delete-expense], [data-pay-template],'
+    + '[data-copy], [data-send-list], [data-send-invite], [data-month], [data-edit-expense], [data-delete-expense], [data-pay-template],'
     + '[data-new-template], [data-new-expense-category], [data-delete-expense-category], [data-unshare]');
   if (!target) return;
   const data = target.dataset;
@@ -630,6 +660,11 @@ document.addEventListener('click', async (event) => {
       await refresh();
     } else if (data.copy) {
       copy(data.copy);
+    } else if (data.sendInvite) {
+      sendLink(data.sendInvite, 'Наши списки и вишлисты');
+    } else if (data.sendList) {
+      const shared = state.lists.find((l) => l.id === Number(data.sendList));
+      if (shared?.share_url) sendLink(shared.share_url, shared.title);
     } else if (data.month) {
       state.month = new Date(state.month.getFullYear(), state.month.getMonth() + Number(data.month), 1);
       await loadExpenses();
