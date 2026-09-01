@@ -35,7 +35,8 @@ def list_out(
 
 
 def item_out(item: Item, viewer: User | None = None, hide_reservation: bool = False) -> ItemOut:
-    reserved = bool(item.reserved_by)
+    # Бронь опознаём по отметке времени, а не по имени: имя необязательно.
+    reserved = item.reserved_at is not None
     return ItemOut(
         id=item.id,
         list_id=item.list_id,
@@ -50,13 +51,12 @@ def item_out(item: Item, viewer: User | None = None, hide_reservation: bool = Fa
         status=item.status,
         created_by=item.created_by.display_name if item.created_by else None,
         created_at=item.created_at,
-        reserved_by=None if hide_reservation else item.reserved_by,
         is_reserved=False if hide_reservation else reserved,
     )
 
 
 def public_item_out(item: Item, secret: str | None, hide_reservation: bool) -> PublicItemOut:
-    reserved = bool(item.reserved_by)
+    reserved = item.reserved_at is not None
     return PublicItemOut(
         id=item.id,
         title=item.title,
@@ -67,7 +67,6 @@ def public_item_out(item: Item, secret: str | None, hide_reservation: bool) -> P
         note=item.note,
         priority=item.priority,
         status=item.status,
-        reserved_by=None if hide_reservation else item.reserved_by,
         is_reserved=False if hide_reservation else reserved,
         mine=bool(reserved and secret and item.reserved_secret == secret),
     )

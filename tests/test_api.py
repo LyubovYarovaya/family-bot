@@ -86,7 +86,9 @@ async def test_share_and_reserve_flow(client):
 
     mine = (await client.get(f"/api/public/{token}?secret=guest-1")).json()
     booked = next(row for row in mine["items"] if row["id"] == item["id"])
-    assert booked["is_reserved"] and booked["mine"] and booked["reserved_by"] == "Оля"
+    assert booked["is_reserved"] and booked["mine"]
+    # Имя бронирующего наружу не отдаём вообще — виден только сам факт брони.
+    assert "reserved_by" not in booked
 
     released = await client.post(
         f"/api/public/{token}/items/{item['id']}/unreserve", json={"secret": "guest-1"}
@@ -111,7 +113,7 @@ async def test_owner_sees_reservations_and_can_hide_them(client):
     shared = (await client.patch(f"/api/lists/{personal['id']}", json={"is_shared": True})).json()
     token = shared["share_url"].rsplit("/", 1)[-1]
     await client.post(
-        f"/api/public/{token}/items/{item['id']}/reserve", json={"name": "Аня", "secret": "g"}
+        f"/api/public/{token}/items/{item['id']}/reserve", json={"secret": "g"}
     )
 
     # Гость видит бронь...
@@ -124,13 +126,12 @@ async def test_owner_sees_reservations_and_can_hide_them(client):
     # ...и владелец теперь тоже.
     owner_view = (await client.get(f"/api/lists/{personal['id']}/items")).json()
     assert owner_view[0]["is_reserved"] is True
-    assert owner_view[0]["reserved_by"] == "Аня"
+    assert "reserved_by" not in owner_view[0]
 
     # Включаем сюрприз — от владельца брони прячутся, от гостей нет.
     await client.patch(f"/api/lists/{personal['id']}", json={"hide_reservations_from_owner": True})
     hidden = (await client.get(f"/api/lists/{personal['id']}/items")).json()
     assert hidden[0]["is_reserved"] is False
-    assert hidden[0]["reserved_by"] is None
     assert (await client.get(f"/api/public/{token}")).json()["items"][0]["is_reserved"] is True
 
 

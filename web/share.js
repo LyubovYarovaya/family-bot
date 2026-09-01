@@ -29,8 +29,6 @@ function guestSecret() {
   return secret;
 }
 
-const guestName = () => localStorage.getItem('guest_name') || '';
-
 function toast(text) {
   const node = document.createElement('div');
   node.className = 'toast';
@@ -53,37 +51,6 @@ async function api(path, { method = 'GET', body } = {}) {
   return response.json();
 }
 
-function askName() {
-  return new Promise((resolve) => {
-    modalRoot.innerHTML = `<div class="sheet-backdrop">
-      <form class="sheet">
-        <h2>Как вас зовут?</h2>
-        <p class="dim" style="margin:-8px 0 14px">
-          Имя увидят только другие гости — чтобы не задарить одно и то же дважды.
-        </p>
-        <label class="field"><input name="name" required maxlength="60" value="${esc(guestName())}" placeholder="Аня"></label>
-        <div class="sheet-actions">
-          <button type="button" class="btn" data-cancel>Отмена</button>
-          <button type="submit" class="btn primary">Забронировать</button>
-        </div>
-      </form>
-    </div>`;
-    const backdrop = modalRoot.firstElementChild;
-    const form = backdrop.querySelector('form');
-    const close = (value) => { modalRoot.innerHTML = ''; resolve(value); };
-    backdrop.addEventListener('click', (event) => { if (event.target === backdrop) close(null); });
-    form.querySelector('[data-cancel]').addEventListener('click', () => close(null));
-    form.addEventListener('submit', (event) => {
-      event.preventDefault();
-      const name = new FormData(form).get('name').toString().trim();
-      if (!name) return;
-      localStorage.setItem('guest_name', name);
-      close(name);
-    });
-    form.querySelector('input').focus();
-  });
-}
-
 function itemCard(item) {
   const thumb = item.image_url
     ? `<img class="thumb" src="${esc(item.image_url)}" alt="" loading="lazy" onerror="this.remove()">`
@@ -94,7 +61,7 @@ function itemCard(item) {
     meta.push(`<span class="badge prio p${item.priority}">${esc(PRIORITIES[item.priority] || '')}</span>`);
   }
   if (item.is_reserved) {
-    meta.push(`<span class="badge reserved">${icon('ribbon')} ${item.mine ? 'вы забронировали' : 'забронировано: ' + esc(item.reserved_by)}</span>`);
+    meta.push(`<span class="badge reserved">${icon('ribbon')} ${item.mine ? 'вы забронировали' : 'забронировано'}</span>`);
   }
 
   let action = `<button class="btn small primary" data-reserve="${item.id}">${icon('ribbon', 'ic-sm')} Забронировать</button>`;
@@ -152,10 +119,8 @@ document.addEventListener('click', async (event) => {
 
   try {
     if (target.dataset.reserve) {
-      const name = await askName();
-      if (!name) return;
       await api(`/api/public/${encodeURIComponent(token)}/items/${target.dataset.reserve}/reserve`, {
-        method: 'POST', body: { name, secret: guestSecret() },
+        method: 'POST', body: { secret: guestSecret() },
       });
       toast('Забронировано');
     } else {

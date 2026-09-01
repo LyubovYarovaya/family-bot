@@ -68,7 +68,6 @@ class ItemOut(BaseModel):
     status: str = "active"
     created_by: str | None = None
     created_at: dt.datetime | None = None
-    reserved_by: str | None = None
     is_reserved: bool = False
 
 
@@ -186,7 +185,6 @@ class PublicItemOut(BaseModel):
     note: str | None = None
     priority: int = 0
     status: str = "active"
-    reserved_by: str | None = None
     is_reserved: bool = False
     mine: bool = False
 
@@ -202,7 +200,9 @@ class PublicListOut(BaseModel):
 
 
 class ReserveIn(BaseModel):
-    name: str = Field(min_length=1, max_length=80)
+    # Имя необязательно: показываем только сам факт брони, без «кто».
+    # Поле оставлено на случай, если захочется вернуть подписи.
+    name: str | None = Field(default=None, max_length=80)
     secret: str | None = None
 
 

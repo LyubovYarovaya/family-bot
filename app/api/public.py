@@ -75,10 +75,10 @@ async def reserve(
     item = await _shared_item(session, token, item_id)
     secret = payload.secret or secrets.token_urlsafe(16)
 
-    if item.reserved_by and item.reserved_secret != secret:
+    if item.reserved_at and item.reserved_secret != secret:
         raise HTTPException(status_code=409, detail="Этот подарок уже забронировали")
 
-    item.reserved_by = payload.name.strip()[:120]
+    item.reserved_by = (payload.name or "").strip()[:120] or None
     item.reserved_secret = secret
     item.reserved_at = dt.datetime.now(dt.timezone.utc)
     await session.commit()

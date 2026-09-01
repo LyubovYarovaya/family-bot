@@ -183,7 +183,7 @@ function itemCard(item) {
   if (item.shop) meta.push(`<span>${esc(item.shop)}</span>`);
   if (item.created_by) meta.push(`<span>${esc(item.created_by)}</span>`);
   if (item.is_reserved) {
-    meta.push(`<span class="badge reserved">${icon('ribbon')} ${esc(item.reserved_by || 'забронировано')}</span>`);
+    meta.push(`<span class="badge reserved">${icon('ribbon')} забронировано</span>`);
   }
 
   return `<div class="card ${item.status === 'bought' ? 'bought' : ''}">
