@@ -42,8 +42,18 @@ function storedInitData() {
 const initData = tg?.initData || initDataFromUrl() || storedInitData();
 rememberInitData(initData);
 
+/* Вкладку можно открыть сразу по адресу: /app/?tab=expenses. Пригодится
+   боту — «сводка за месяц» ведёт прямо в траты, а не на покупки. */
+const TABS = ['shopping', 'wishlist', 'expenses', 'settings'];
+const startTab = (() => {
+  try {
+    const wanted = new URLSearchParams(window.location.search).get('tab');
+    return TABS.includes(wanted) ? wanted : 'shopping';
+  } catch (_) { return 'shopping'; }
+})();
+
 const state = {
-  tab: 'shopping',
+  tab: startTab,
   me: null,
   lists: [],
   active: { shopping: null, wishlist: null },
@@ -803,6 +813,9 @@ document.addEventListener('click', async (event) => {
   }
 });
 
+document.querySelectorAll('nav.tabbar button').forEach((b) => {
+  b.classList.toggle('active', b.dataset.tab === state.tab);
+});
 document.querySelectorAll('nav.tabbar button').forEach((button) => {
   button.addEventListener('click', async () => {
     document.querySelectorAll('nav.tabbar button').forEach((b) => b.classList.remove('active'));
