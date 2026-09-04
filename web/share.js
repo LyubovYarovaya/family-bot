@@ -167,7 +167,10 @@ async function load() {
     listKind = data.kind || 'wishlist';
     document.getElementById('title').textContent = data.title;
     document.title = data.title;
-    document.getElementById('subtitle').textContent = data.owner_name
+    // Название личного вишлиста уже содержит имя владельца — второй раз его
+    // повторять незачем, показываем семью.
+    const ownerNamed = data.owner_name && data.title.includes(data.owner_name);
+    document.getElementById('subtitle').textContent = data.owner_name && !ownerNamed
       ? `Вишлист: ${data.owner_name}`
       : data.household_title;
 
