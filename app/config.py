@@ -69,7 +69,16 @@ class Settings(BaseSettings):
 
     @property
     def webapp_url(self) -> str:
-        return f"{self.base_url}/app/"
+        """Адрес мини-приложения для кнопок бота.
+
+        Хвост с версией выкатки заставляет вебвью Telegram считать каждую
+        выкатку новой страницей. Без него iOS-клиент неделями показывает
+        закэшированный старый интерфейс, игнорируя Cache-Control: no-store.
+        Приложение лишние параметры адреса не читает — только tab.
+        """
+        stamp = os.getenv("RAILWAY_GIT_COMMIT_SHA", "")[:7]
+        base = f"{self.base_url}/app/"
+        return f"{base}?v={stamp}" if stamp else base
 
     def share_url(self, token: str) -> str:
         return f"{self.base_url}/s/{token}"
