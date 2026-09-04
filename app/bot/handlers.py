@@ -23,6 +23,7 @@ from ..models import (
     User,
 )
 from ..services import items as items_service
+from ..services import rates
 from ..services.link_parser import extract_urls
 from ..services.quick_expense import parse_expense
 from ..services.users import get_or_create_user, join_household
@@ -91,7 +92,12 @@ def item_card(item: Item, item_list: ItemList) -> str:
     if item.priority and item_list.kind != "wishlist":
         lines.append(f"{PRIORITY_MARKS[item.priority]} Приоритет: {ITEM_PRIORITIES[item.priority]}")
     if item.price:
-        lines.append(f"💰 {money(item.price, item.currency or settings.default_currency)}")
+        price_line = f"💰 {money(item.price, item.currency or settings.default_currency)}"
+        # Цена в фунтах или евро сама по себе мало что говорит — дописываем гривну.
+        in_uah = rates.to_uah_cached(float(item.price), item.currency)
+        if in_uah:
+            price_line += f" ≈ {money(in_uah, 'UAH')}"
+        lines.append(price_line)
     if item.shop:
         lines.append(f"🏬 {escape(item.shop)}")
     if item.url:

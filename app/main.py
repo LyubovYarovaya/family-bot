@@ -18,6 +18,7 @@ from .api.public import router as public_router
 from .bot import COMMANDS, get_bot, get_dispatcher
 from .config import settings
 from .db import SessionLocal, init_db
+from .services import rates
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("family-bot")
@@ -84,6 +85,9 @@ async def _start_bot(app: FastAPI) -> None:
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    # Курсы валют греем сразу: сериализаторы синхронные и в сеть не ходят,
+    # без прогретого кэша первый экран показался бы без пересчёта.
+    await rates.refresh()
     await _start_bot(app)
     try:
         yield

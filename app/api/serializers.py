@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ..config import settings
 from ..models import Expense, Item, ItemList, User
+from ..services import rates
 from ..schemas import ExpenseOut, ItemOut, ListOut, PublicItemOut, UserOut
 
 
@@ -47,6 +48,9 @@ def item_out(item: Item, viewer: User | None = None, hide_reservation: bool = Fa
         shop=item.shop,
         price=float(item.price) if item.price is not None else None,
         currency=item.currency,
+        price_uah=rates.to_uah_cached(
+            float(item.price) if item.price is not None else None, item.currency
+        ),
         note=item.note,
         priority=item.priority,
         status=item.status,
@@ -72,6 +76,9 @@ def public_item_out(
         # а не приходит и прячется на клиенте.
         price=None if hide_price else (float(item.price) if item.price is not None else None),
         currency=None if hide_price else item.currency,
+        price_uah=None if hide_price else rates.to_uah_cached(
+            float(item.price) if item.price is not None else None, item.currency
+        ),
         note=item.note,
         priority=item.priority,
         status=item.status,

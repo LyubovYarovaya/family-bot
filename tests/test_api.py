@@ -99,6 +99,67 @@ async def test_share_and_reserve_flow(client):
     assert (await client.get(f"/api/public/{token}")).status_code == 404
 
 
+async def test_summary_converts_foreign_currencies(client, monkeypatch):
+    """Траты в чужой валюте попадают в итог, приведённые к гривне.
+
+    Курсы подставляем свои: тест не должен зависеть от банка и от сети.
+    Считаем прирост, а не абсолютный итог, — база в тестах общая, и в месяце
+    уже лежат траты из соседних проверок. Раньше траты в другой валюте молча
+    выпадали из месяца целиком.
+    """
+    import datetime as dt
+
+    from app.services import rates
+
+    monkeypatch.setattr(rates, "_rates", {"UAH": 1.0, "GBP": 50.0, "USD": 40.0})
+    monkeypatch.setattr(rates, "_fetched_at", dt.datetime.now(dt.timezone.utc))
+
+    today = dt.date.today()
+    first = today.replace(day=1)
+    url = f"/api/expenses/summary?date_from={first}&date_to={today}"
+    before = (await client.get(url)).json()["total"]
+
+    for amount, currency in [(10, "GBP"), (100, "UAH")]:
+        await client.post(
+            "/api/expenses",
+            json={"amount": amount, "currency": currency, "title": "подарок",
+                  "period": "once", "spent_on": today.isoformat()},
+        )
+
+    summary = (await client.get(url)).json()
+    # 10 GBP по курсу 50 = 500 грн, плюс 100 грн = 600.
+    assert round(summary["total"] - before, 2) == 600
+    assert summary["currency"] == "UAH"
+    # Тот же итог в долларах, по курсу 40.
+    assert summary["total_secondary"] == round(summary["total"] / 40, 2)
+    assert summary["secondary_currency"] == "USD"
+    assert summary["unconverted"] == []
+    # Разбивка по валютам показывает исходные суммы, без пересчёта.
+    assert {b["key"]: b["total"] for b in summary["by_currency"]}["GBP"] == 10
+
+
+async def test_unknown_currency_is_reported_not_silently_dropped(client, monkeypatch):
+    """Валюта без курса не попадает в итог, но о ней прямо сказано."""
+    import datetime as dt
+
+    from app.services import rates
+
+    monkeypatch.setattr(rates, "_rates", {"UAH": 1.0})
+    monkeypatch.setattr(rates, "_fetched_at", dt.datetime.now(dt.timezone.utc))
+
+    today = dt.date.today()
+    first = today.replace(day=1)
+    await client.post(
+        "/api/expenses",
+        json={"amount": 7, "currency": "XYZ", "title": "загадка",
+              "period": "once", "spent_on": today.isoformat()},
+    )
+    summary = (await client.get(
+        f"/api/expenses/summary?date_from={first}&date_to={today}"
+    )).json()
+    assert "XYZ" in summary["unconverted"]
+
+
 async def test_guests_do_not_see_wishlist_prices(client):
     """Вишлист по ссылке — не прайс-лист: цены гостям по умолчанию не видны."""
     lists = (await client.get("/api/lists")).json()

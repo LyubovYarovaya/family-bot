@@ -65,6 +65,8 @@ class ItemOut(BaseModel):
     shop: str | None = None
     price: float | None = None
     currency: str | None = None
+    # Та же цена в гривне — заполняется, только если валюта не гривна.
+    price_uah: float | None = None
     note: str | None = None
     priority: int = 0
     status: str = "active"
@@ -157,6 +159,12 @@ class SummaryOut(BaseModel):
     date_to: dt.date
     currency: str
     total: float
+    # Тот же итог во второй валюте плюс дата курса, по которому считали.
+    total_secondary: float | None = None
+    secondary_currency: str | None = None
+    rates_date: str | None = None
+    # Валюты, курс которых получить не вышло: их суммы в итог не попали.
+    unconverted: list[str] = []
     by_category: list[SummaryBucket]
     by_period: list[SummaryBucket]
     by_month: list[SummaryBucket]
@@ -184,6 +192,8 @@ class PublicItemOut(BaseModel):
     image_url: str | None = None
     price: float | None = None
     currency: str | None = None
+    # Та же цена в гривне — заполняется, только если валюта не гривна.
+    price_uah: float | None = None
     note: str | None = None
     priority: int = 0
     status: str = "active"

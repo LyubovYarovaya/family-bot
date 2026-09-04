@@ -115,6 +115,8 @@ main > * { min-width: 0; max-width: 100%; }
 }
 .card .meta .ic { color: var(--ink-3); }
 .card .price { font-weight: 700; color: var(--ink); font-size: 17px; letter-spacing: -.02em; }
+/* Пересчёт по курсу — подсказка рядом с ценой, а не вторая цена. */
+.card .approx { color: var(--ink-3); font-size: 13px; }
 .card .actions { display: flex; gap: 6px; margin-top: 11px; flex-wrap: wrap; align-items: center; }
 .card .actions .btn { height: 34px; }
 /* Мелкие действия — вправо, чтобы главная кнопка читалась первой. */
@@ -239,6 +241,7 @@ nav.tabbar button.active .pill { background: var(--acid); color: var(--acid-ink)
 
 .total { font-size: 34px; font-weight: 720; letter-spacing: -.03em; margin: 10px 0 0; line-height: 1.1; }
 .total-caption { font-size: 12px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; font-weight: 620; }
+.approx-total { font-size: 14px; color: var(--ink-2); font-weight: 600; margin-top: 6px; }
 
 /* Заголовок списка: иконка, название и сумма — крупнее строк-действий под ним. */
 .list-head { display: flex; align-items: center; gap: 11px; }

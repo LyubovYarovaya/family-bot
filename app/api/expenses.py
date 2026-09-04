@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from ..auth import current_user
 from ..config import settings
 from ..db import get_session
+from ..services import rates
 from ..models import PERIODS, Expense, ExpenseCategory, User
 from ..schemas import (
     ExpenseCategoryCreate,
@@ -24,6 +25,10 @@ from ..schemas import (
 from .serializers import expense_out
 
 router = APIRouter(prefix="/api")
+
+# Вторую сумму в сводке показываем в долларах: так понятнее масштаб,
+# когда гривна скачет. Считается из уже сведённого гривневого итога.
+SECONDARY_CURRENCY = "USD"
 
 
 def month_bounds(today: dt.date | None = None) -> tuple[dt.date, dt.date]:
@@ -267,13 +272,22 @@ async def summary(
     by_month: dict[str, list[float | int]] = {}
     total = 0.0
 
+    skipped_currencies: set[str] = set()
+
     for row in rows:
         amount = float(row.amount)
+        # Разбивка по валютам показывает суммы как есть — сколько чего потрачено.
         bucket = by_currency.setdefault(row.currency, [0.0, 0])
         bucket[0] += amount
         bucket[1] += 1
-        if row.currency != currency:
+
+        # А в итог и разбивки всё приводим к базовой валюте. Раньше траты в
+        # другой валюте просто выбрасывались и не попадали в месяц вообще.
+        converted = amount if row.currency == currency else await rates.to_uah(amount, row.currency)
+        if converted is None:
+            skipped_currencies.add(row.currency)
             continue
+        amount = converted
 
         total += amount
         category = by_category.setdefault(
@@ -298,20 +312,31 @@ async def summary(
             select(Expense).where(
                 Expense.household_id == user.household_id,
                 Expense.is_template.is_(True),
-                Expense.currency == currency,
             )
         )
     )
     planned = {"monthly": 0.0, "quarterly": 0.0, "yearly": 0.0}
     for template in templates:
-        if template.period in planned:
-            planned[template.period] += float(template.amount)
+        if template.period not in planned:
+            continue
+        amount = float(template.amount)
+        if template.currency != currency:
+            amount = await rates.to_uah(amount, template.currency)
+            if amount is None:
+                skipped_currencies.add(template.currency)
+                continue
+        planned[template.period] += amount
 
     return SummaryOut(
         date_from=date_from,
         date_to=date_to,
         currency=currency,
         total=round(total, 2),
+        total_secondary=await rates.from_uah(round(total, 2), SECONDARY_CURRENCY)
+        if currency == "UAH" else None,
+        secondary_currency=SECONDARY_CURRENCY if currency == "UAH" else None,
+        rates_date=rates.updated_on(),
+        unconverted=sorted(skipped_currencies),
         by_category=sorted(
             [
                 SummaryBucket(

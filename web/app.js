@@ -172,8 +172,11 @@ function itemCard(item) {
     ? `<img class="thumb" src="${esc(item.image_url)}" alt="" loading="lazy" onerror="this.remove()">`
     : '';
   // Цена — отдельной строкой и крупно, остальное приглушённой подписью под ней.
+  // Цена в валюте магазина, рядом — сколько это в гривне по курсу НБУ.
   const priceLine = item.price
-    ? `<div class="meta"><span class="price">${esc(money(item.price, item.currency || state.me.currency))}</span></div>`
+    ? `<div class="meta"><span class="price">${esc(money(item.price, item.currency || state.me.currency))}</span>${
+        item.price_uah ? `<span class="approx">≈ ${esc(money(item.price_uah, 'UAH'))}</span>` : ''
+      }</div>`
     : '';
   const meta = [];
   // В вишлистах приоритет не показываем: там его не выставляют.
@@ -215,9 +218,12 @@ function renderItemsView(kind) {
   state.viewKind = kind;
   const list = currentList(kind);
   const visible = state.items.filter((i) => state.showBought || i.status === 'active');
-  const total = visible
+  // Складываем в гривне: 420 £ и 18 000 ₴ — это не 18 420 чего-нибудь.
+  // Для позиций в валюте берём пересчёт с сервера, для гривневых — саму цену.
+  // В вишлистах сумму не показываем: список желаний — не смета.
+  const total = kind === 'wishlist' ? 0 : visible
     .filter((i) => i.status === 'active' && i.price)
-    .reduce((sum, i) => sum + Number(i.price), 0);
+    .reduce((sum, i) => sum + Number(i.price_uah || i.price), 0);
 
   const body = visible.length
     ? visible.map(itemCard).join('')
@@ -247,7 +253,7 @@ function renderItemsView(kind) {
       <div class="list-head">
         ${iconBadge(list.emoji)}
         <span class="name">${esc(list.title)}</span>
-        ${total ? `<span class="sum">${esc(money(total, state.me.currency))}</span>` : ''}
+        ${total ? `<span class="sum">${esc(money(total, 'UAH'))}</span>` : ''}
       </div>
       <div class="list-actions">
         <button class="btn small outline" data-toggle-shown>
@@ -338,7 +344,14 @@ function renderExpensesView() {
       </div>
       <div class="total">${esc(money(summary.total, summary.currency))}</div>
       <div class="total-caption">потрачено за месяц</div>
-      ${others.length ? `<div class="dim" style="margin-top:4px">+ ${others.map((b) => esc(money(b.total, b.key))).join(' · ')}</div>` : ''}
+      ${summary.total_secondary ? `<div class="approx-total">≈ ${
+        esc(money(summary.total_secondary, summary.secondary_currency))
+      }${summary.rates_date ? ` · курс НБУ на ${esc(summary.rates_date)}` : ''}</div>` : ''}
+      ${others.length ? `<div class="dim" style="margin-top:6px">В сумму пересчитано: ${
+        others.map((b) => esc(money(b.total, b.key))).join(' · ')
+      }</div>` : ''}
+      ${summary.unconverted?.length ? `<div class="dim" style="margin-top:6px;color:var(--danger)">
+        Без курса и потому мимо итога: ${summary.unconverted.map(esc).join(', ')}</div>` : ''}
       <div class="row"><div class="label">Регулярные в месяц</div>
         <div class="value">${esc(money(summary.planned_monthly, summary.currency))}</div></div>
       <div class="row"><div class="label">В квартал</div>

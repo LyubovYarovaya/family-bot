@@ -23,6 +23,7 @@ from ..schemas import (
     MeOut,
 )
 from ..services import items as items_service
+from ..services import rates
 from ..services.defaults import ensure_personal_wishlist
 from ..services.link_parser import fetch_preview
 from ..services.users import household_members, join_household
@@ -108,26 +109,32 @@ async def get_lists(
         query = query.where(ItemList.kind == kind)
     lists = list(await session.scalars(query))
 
+    # Считаем в разрезе валют: складывать 42 £ и 900 ₴ как одинаковые числа
+    # нельзя, поэтому каждую валюту приводим к гривне отдельно.
     stats_rows = await session.execute(
         select(
             Item.list_id,
             Item.status,
+            Item.currency,
             func.count(Item.id),
             func.sum(Item.price),
         )
         .join(ItemList)
         .where(ItemList.household_id == user.household_id)
-        .group_by(Item.list_id, Item.status)
+        .group_by(Item.list_id, Item.status, Item.currency)
     )
-    stats: dict[int, dict[str, tuple[int, float]]] = {}
-    for list_id, status, count, total in stats_rows:
-        stats.setdefault(list_id, {})[status] = (count, float(total or 0))
+    stats: dict[int, dict[str, list]] = {}
+    for list_id, status, currency, count, total in stats_rows:
+        in_uah = await rates.to_uah(float(total or 0), currency or settings.default_currency)
+        entry = stats.setdefault(list_id, {}).setdefault(status, [0, 0.0])
+        entry[0] += count
+        entry[1] += in_uah or 0.0
 
     result = []
     for item_list in lists:
         by_status = stats.get(item_list.id, {})
-        active_count, active_total = by_status.get("active", (0, 0.0))
-        bought_count, _ = by_status.get("bought", (0, 0.0))
+        active_count, active_total = by_status.get("active", [0, 0.0])
+        bought_count, _ = by_status.get("bought", [0, 0.0])
         result.append(
             list_out(
                 item_list,

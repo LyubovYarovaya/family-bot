@@ -56,7 +56,10 @@ function itemCard(item) {
     ? `<img class="thumb" src="${esc(item.image_url)}" alt="" loading="lazy" onerror="this.remove()">`
     : '';
   const meta = [];
-  if (item.price) meta.push(`<span class="price">${esc(money(item.price, item.currency))}</span>`);
+  if (item.price) {
+    meta.push(`<span class="price">${esc(money(item.price, item.currency))}</span>`);
+    if (item.price_uah) meta.push(`<span class="approx">≈ ${esc(money(item.price_uah, 'UAH'))}</span>`);
+  }
   if (item.priority && listKind !== 'wishlist') {
     meta.push(`<span class="badge prio p${item.priority}">${esc(PRIORITIES[item.priority] || '')}</span>`);
   }
