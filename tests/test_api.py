@@ -289,7 +289,12 @@ async def test_receipt_photo_becomes_expense(client, monkeypatch):
     assert "612" in card and "Аптека Доброго Дня" in card
     assert "Беременность" in card
     assert "Чек сохранён" in card
-    assert sent[-1]["markup"] is not None  # кнопки: категория, периодичность, удалить
+    # Под карточкой сразу выбор категории: «всё верно» + все категории семьи,
+    # распознанная помечена точкой.
+    labels = [b.text for row in sent[-1]["markup"].inline_keyboard for b in row]
+    assert labels[0] == "✅ Всё верно"
+    assert any(l.startswith("• ") and "Беременность" in l for l in labels)
+    assert any("Продукты" in l for l in labels)
 
     # Трата есть в API с снимком чека, снимок открывается.
     expenses = (await client.get("/api/expenses?date_from=2026-09-01&date_to=2026-09-30")).json()

@@ -459,10 +459,28 @@ async def handle_receipt(message: Message) -> None:
             expense.category = category
             text = expense_card(expense)
             expense_id = expense.id
+            categories = list(
+                await session.scalars(
+                    select(ExpenseCategory)
+                    .where(ExpenseCategory.household_id == user.household_id)
+                    .order_by(ExpenseCategory.position, ExpenseCategory.id)
+                )
+            )
 
         if receipt.confidence < 0.6:
             text += "\n\n<i>Сумму читала неуверенно — проверь.</i>"
-        await placeholder.edit_text(text, reply_markup=kb.expense_actions(expense_id))
+        # Категорию модель угадывает, а не знает — поэтому сразу даём выбрать
+        # другую одним нажатием, а не через меню.
+        text += "\n\nКатегория не та? Выбери нужную:"
+        await placeholder.edit_text(
+            text,
+            reply_markup=kb.expense_category_picker(
+                expense_id,
+                categories,
+                current_id=category.id if category else None,
+                confirm=True,
+            ),
+        )
     except Exception as error:  # noqa: BLE001 — человеку нужен ответ, а не тишина
         log.exception("Чек не обработан")
         await placeholder.edit_text(f"Не получилось обработать чек: {escape(str(error))[:200]}")

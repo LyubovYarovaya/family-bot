@@ -95,14 +95,28 @@ def expense_actions(expense_id: int) -> InlineKeyboardMarkup:
 
 
 def expense_category_picker(
-    expense_id: int, categories: list[ExpenseCategory]
+    expense_id: int,
+    categories: list[ExpenseCategory],
+    current_id: int | None = None,
+    confirm: bool = False,
 ) -> InlineKeyboardMarkup:
+    """Выбор категории траты.
+
+    В режиме confirm клавиатура показывается сразу под карточкой чека: сверху
+    кнопка «всё верно», текущая категория помечена точкой. Так распознанную
+    категорию можно поправить одним нажатием, не заходя в меню.
+    """
     buttons: list[list[InlineKeyboardButton]] = []
+    if confirm:
+        buttons.append(
+            [InlineKeyboardButton(text="✅ Всё верно", callback_data=f"exp:back:{expense_id}")]
+        )
     row: list[InlineKeyboardButton] = []
     for category in categories:
+        mark = "• " if category.id == current_id else ""
         row.append(
             InlineKeyboardButton(
-                text=f"{category.emoji} {category.title}",
+                text=f"{mark}{category.emoji} {category.title}",
                 callback_data=f"exp:set:{expense_id}:{category.id}",
             )
         )
@@ -111,7 +125,10 @@ def expense_category_picker(
             row = []
     if row:
         buttons.append(row)
-    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=f"exp:back:{expense_id}")])
+    if not confirm:
+        buttons.append(
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"exp:back:{expense_id}")]
+        )
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
