@@ -186,6 +186,8 @@ class Expense(Base, TimestampMixin):
     spent_on: Mapped[dt.date] = mapped_column(Date, index=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_template: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Фото чека, если трата создана из снимка: /media/<токен>.
+    receipt_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     created_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

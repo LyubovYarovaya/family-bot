@@ -315,6 +315,7 @@ function expenseRow(expense) {
     </div>
     <div class="value">
       ${esc(money(expense.amount, expense.currency))}
+      ${expense.receipt_url ? `<a class="btn small icon ghost" href="${esc(expense.receipt_url)}" target="_blank" rel="noopener" aria-label="Открыть чек">${icon('note', 'ic-sm')}</a>` : ''}
       <button class="btn small icon ghost" data-edit-expense="${expense.id}" aria-label="Изменить">${icon('pencil', 'ic-sm')}</button>
     </div>
   </div>`;

@@ -82,7 +82,7 @@ const ICONS = {
 const EMOJI_ICON = {
   '🔌': 'plug', '🍳': 'pan', '🏠': 'house', '🏡': 'house', '🧵': 'thread', '🧶': 'thread',
   '🍼': 'bottle', '👶': 'bottle', '📦': 'box', '🎁': 'gift', '⭐': 'star', '🌟': 'star',
-  '🚗': 'car', '🚙': 'car', '🩺': 'health', '💊': 'health', '❤️': 'health', '🛒': 'cart',
+  '🚗': 'car', '🚙': 'car', '🩺': 'health', '🤰': 'health', '💊': 'health', '❤️': 'health', '🛒': 'cart',
   '🍔': 'cart', '🥦': 'cart', '📱': 'phone', '💻': 'plug', '👗': 'dress', '👕': 'dress',
   '👟': 'dress', '🎬': 'film', '🎮': 'film', '🎵': 'film', '💸': 'money', '💰': 'money',
   '🛍': 'bag', '🛍️': 'bag', '🔁': 'repeat', '🎀': 'ribbon', '🔗': 'link', '📝': 'note',
@@ -94,7 +94,7 @@ const EMOJI_ICON = {
    он и уедет в базу, чтобы бот в чате писал его как раньше. */
 const ICON_CHOICES = [
   '🛍', '📦', '🏠', '🍳', '🔌', '🧵', '🍼', '🎁', '⭐',
-  '🚗', '🩺', '🛒', '📱', '👗', '🎬', '💸', '🔁', '🎀',
+  '🚗', '🩺', '🤰', '🛒', '📱', '👗', '🎬', '💸', '🔁', '🎀',
 ];
 
 function icon(name, extraClass = '') {

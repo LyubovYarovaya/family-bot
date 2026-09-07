@@ -107,3 +107,36 @@ def test_quick_expense():
     assert parsed.period == "yearly"
 
     assert parse_expense("просто текст") is None
+
+
+def test_pregnancy_expense_category():
+    assert guess_expense_category("витамины для беременных элевит") == "pregnancy"
+    assert guess_expense_category("узи скрининг 12 недель беременности") == "pregnancy"
+    # обычная аптека остаётся здоровьем
+    assert guess_expense_category("аптека нурофен") == "health"
+
+
+def test_receipt_parsing_tolerates_markdown_and_junk():
+    """Модель просили чистый JSON, но ответ может прийти в ```json``` — не падаем."""
+    from app.services.receipts import _extract_json, _to_date, _to_decimal
+    import datetime as dt
+
+    fenced = "```json" + chr(10) + '{"total": "1 299,50", "currency": "грн"}' + chr(10) + "```"
+    data = _extract_json(fenced)
+    assert _to_decimal(data["total"]) == 1299.50
+    assert _to_decimal("не число") is None
+    assert _to_decimal(-5) is None
+    assert _to_date("2026-09-01") == dt.date(2026, 9, 1)
+    assert _to_date("2099-01-01") is None   # чек из будущего — ошибка года
+    assert _to_date("вчера") is None
+
+
+def test_receipt_disabled_without_key(monkeypatch):
+    """Без ключа сервис выключен и честно возвращает None, а не падает."""
+    import asyncio
+    from app.services import receipts
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "anthropic_api_key", "")
+    assert receipts.enabled() is False
+    assert asyncio.run(receipts.read_receipt(b"not-an-image")) is None

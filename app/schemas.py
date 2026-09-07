@@ -119,6 +119,7 @@ class ExpenseOut(BaseModel):
     spent_on: dt.date
     note: str | None = None
     is_template: bool = False
+    receipt_url: str | None = None
     category_id: int | None = None
     category_title: str | None = None
     category_emoji: str | None = None

@@ -232,3 +232,70 @@ async def test_auth_required_without_dev_id(client, monkeypatch):
 
     monkeypatch.setattr(settings, "dev_tg_id", None)
     assert (await client.get("/api/me")).status_code == 401
+
+
+async def test_receipt_photo_becomes_expense(client, monkeypatch):
+    """Фото чека → трата с категорией и сохранённым снимком.
+
+    Распознавание подменяем: тест не ходит в Claude и не требует ключа.
+    Проверяем всё вокруг вызова — скачивание, запись снимка, категорию, карточку.
+    """
+    import datetime as dt
+    import io
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    from app.bot import handlers
+    from app.config import settings
+    from app.services import receipts
+
+    monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
+    fake = receipts.Receipt(
+        total=Decimal("612.40"), currency="UAH", date=dt.date(2026, 9, 3),
+        merchant="Аптека Доброго Дня", items="Элевит пронаталь, фолиевая кислота",
+        category="pregnancy", confidence=0.93,
+    )
+
+    async def fake_read(image, mime="image/jpeg"):
+        assert image == b"JPEGDATA"
+        return fake
+    monkeypatch.setattr(receipts, "read_receipt", fake_read)
+
+    sent: list[dict] = []
+
+    class Placeholder:
+        async def edit_text(self, text, **kwargs):
+            sent.append({"text": text, "markup": kwargs.get("reply_markup")})
+
+    class Bot:
+        async def download(self, file_id):
+            assert file_id == "photo-1"
+            return io.BytesIO(b"JPEGDATA")
+
+    message = SimpleNamespace(
+        photo=[SimpleNamespace(file_id="photo-0"), SimpleNamespace(file_id="photo-1")],
+        document=None,
+        bot=Bot(),
+        from_user=SimpleNamespace(id=777, first_name="Dev", username=None, language_code="ru"),
+    )
+    async def answer(text, **kwargs):
+        return Placeholder()
+    message.answer = answer
+
+    await handlers.handle_receipt(message)
+
+    assert sent, "бот ничего не ответил"
+    card = sent[-1]["text"]
+    assert "612" in card and "Аптека Доброго Дня" in card
+    assert "Беременность" in card
+    assert "Чек сохранён" in card
+    assert sent[-1]["markup"] is not None  # кнопки: категория, периодичность, удалить
+
+    # Трата есть в API с снимком чека, снимок открывается.
+    expenses = (await client.get("/api/expenses?date_from=2026-09-01&date_to=2026-09-30")).json()
+    made = next(e for e in expenses if e["title"] == "Аптека Доброго Дня")
+    assert made["amount"] == 612.4 and made["currency"] == "UAH"
+    assert made["spent_on"] == "2026-09-03"
+    assert made["receipt_url"] and made["receipt_url"].startswith("/media/")
+    picture = await client.get(made["receipt_url"])
+    assert picture.status_code == 200 and picture.content == b"JPEGDATA"

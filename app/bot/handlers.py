@@ -20,15 +20,22 @@ from ..models import (
     Household,
     Item,
     ItemList,
+    Media,
     User,
+    new_token,
 )
 from ..services import items as items_service
 from ..services import rates
+from ..services import receipts
+from ..services.categorizer import guess_expense_category
 from ..services.link_parser import extract_urls
 from ..services.quick_expense import parse_expense
 from ..services.users import get_or_create_user, join_household
 from . import keyboards as kb
 
+import logging
+
+log = logging.getLogger("family-bot.bot")
 router = Router()
 
 HELP = """<b>Что я умею</b>
@@ -39,6 +46,9 @@ HELP = """<b>Что я умею</b>
 
 💸 <b>Напиши сумму</b> — «450 бензин» или «1200 грн аптека ежемесячная».
 Определю категорию траты и запишу.
+
+📷 <b>Пришли фото чека</b> — прочитаю сумму, дату и магазин, определю категорию
+и запишу трату. Категорию можно поправить кнопкой под сообщением.
 
 🎁 <b>Вишлисты</b> — общий на двоих и личный у каждого.
 Любой список можно открыть по ссылке: гости увидят его без Telegram
@@ -121,6 +131,8 @@ def expense_card(expense: Expense) -> str:
     if expense.period != "once":
         lines.append(f"🔁 {PERIODS[expense.period]}")
     lines.append(f"📅 {expense.spent_on.strftime('%d.%m.%Y')}")
+    if expense.receipt_url:
+        lines.append("📷 Чек сохранён — открыть в приложении")
     return "\n".join(lines)
 
 
@@ -377,6 +389,83 @@ async def handle_link(message: Message) -> None:
                 )
     finally:
         await placeholder.delete()
+
+
+RECEIPT_MIME = {"image/jpeg", "image/png", "image/webp"}
+
+
+@router.message(F.photo)
+@router.message(F.document.mime_type.in_(RECEIPT_MIME))
+async def handle_receipt(message: Message) -> None:
+    """Фото чека → трата. Сумму, дату, магазин и категорию читает Claude."""
+    if not receipts.enabled():
+        await message.answer(
+            "Чеки пока не распознаю: на сервере не задан ключ ANTHROPIC_API_KEY. "
+            "Добавь его в переменные — и присылай фото."
+        )
+        return
+
+    if message.photo:
+        file_id, mime = message.photo[-1].file_id, "image/jpeg"
+    else:
+        file_id, mime = message.document.file_id, message.document.mime_type or "image/jpeg"
+
+    placeholder = await message.answer("Читаю чек…")
+    try:
+        buffer = await message.bot.download(file_id)
+        image = buffer.read()
+        receipt = await receipts.read_receipt(image, mime)
+
+        if receipt is None or not receipt.readable:
+            await placeholder.edit_text(
+                "Не смогла разобрать сумму на этом фото. Попробуй снять ровнее и при "
+                "свете — или напиши трату текстом: «450 аптека»."
+            )
+            return
+
+        # Категория: подсказка модели, а если она сдалась («other») —
+        # наши ключевые слова по магазину и позициям.
+        slug = receipt.category
+        if slug == "other":
+            slug = guess_expense_category(f"{receipt.merchant or ''} {receipt.items}")
+
+        async with SessionLocal() as session:
+            user = await resolve_user(session, message)
+            category = await session.scalar(
+                select(ExpenseCategory).where(
+                    ExpenseCategory.household_id == user.household_id,
+                    ExpenseCategory.slug == slug,
+                )
+            )
+            # Снимок чека храним рядом с фото товаров — по случайному токену.
+            media = Media(token=new_token(), mime=mime, data=image, household_id=user.household_id)
+            session.add(media)
+            await session.flush()
+
+            expense = Expense(
+                household_id=user.household_id,
+                category_id=category.id if category else None,
+                title=(receipt.merchant or "по чеку")[:200],
+                amount=receipt.total,
+                currency=receipt.currency or settings.default_currency,
+                period="once",
+                spent_on=receipt.date or dt.date.today(),
+                note=receipt.items or None,
+                receipt_url=f"/media/{media.token}",
+                created_by_id=user.id,
+            )
+            session.add(expense)
+            await session.commit()
+            expense.category = category
+            text = expense_card(expense)
+            expense_id = expense.id
+
+        if receipt.confidence < 0.6:
+            text += "\n\n<i>Сумму читала неуверенно — проверь.</i>"
+        await placeholder.edit_text(text, reply_markup=kb.expense_actions(expense_id))
+    except Exception as error:  # noqa: BLE001 — человеку нужен ответ, а не тишина
+        log.exception("Чек не обработан")
+        await placeholder.edit_text(f"Не получилось обработать чек: {escape(str(error))[:200]}")
 
 
 @router.message(F.text.regexp(r"^\s*[-–—]?\s*\d"))

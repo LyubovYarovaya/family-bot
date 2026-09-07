@@ -19,6 +19,7 @@ DEFAULT_LISTS: list[tuple[str, str, str]] = [
 DEFAULT_EXPENSE_CATEGORIES: list[tuple[str, str, str]] = [
     ("car", "Машина", "🚗"),
     ("health", "Здоровье", "🩺"),
+    ("pregnancy", "Беременность", "🤰"),
     ("home", "Квартира", "🏠"),
     ("food", "Продукты", "🛒"),
     ("baby", "Baby", "🍼"),

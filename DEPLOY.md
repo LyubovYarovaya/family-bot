@@ -29,6 +29,7 @@ Postgres. Отдельная сборка не нужна — хостинг с�
    | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (ссылка на соседний сервис) |
    | `BOT_MODE` | `polling` |
    | `DEFAULT_CURRENCY` | `UAH` |
+   | `ANTHROPIC_API_KEY` | ключ Anthropic — включает чтение чеков с фото. Без него бот честно скажет, что чеки не распознаёт |
 
    `PUBLIC_URL` задавать не нужно: приложение возьмёт домен из
    `RAILWAY_PUBLIC_DOMAIN`, который Railway подставляет сам.

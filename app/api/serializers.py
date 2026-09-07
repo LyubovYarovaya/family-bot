@@ -97,6 +97,7 @@ def expense_out(expense: Expense) -> ExpenseOut:
         spent_on=expense.spent_on,
         note=expense.note,
         is_template=expense.is_template,
+        receipt_url=expense.receipt_url,
         category_id=expense.category_id,
         category_title=expense.category.title if expense.category else None,
         category_emoji=expense.category.emoji if expense.category else None,

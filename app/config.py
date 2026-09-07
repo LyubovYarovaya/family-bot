@@ -21,6 +21,10 @@ class Settings(BaseSettings):
 
     dev_tg_id: int | None = None
 
+    # Распознавание чеков с фото. Без ключа функция выключена, бот об этом скажет.
+    anthropic_api_key: str = ""
+    receipt_model: str = "claude-opus-5"
+
     @field_validator("dev_tg_id", mode="before")
     @classmethod
     def _blank_is_none(cls, value):

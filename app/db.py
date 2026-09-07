@@ -25,6 +25,7 @@ NEW_COLUMNS: list[tuple[str, str, str, str | None]] = [
         # В категориях покупок цены гостям полезны, там оставляем как было.
         "UPDATE lists SET show_prices_to_guests = FALSE WHERE kind = 'wishlist'",
     ),
+    ("expenses", "receipt_url", "VARCHAR(255)", None),  # фото чека у траты
 ]
 
 
