@@ -69,7 +69,7 @@ def list_picker(item_id: int, lists: list[ItemList]) -> InlineKeyboardMarkup:
     for item_list in lists:
         row.append(
             InlineKeyboardButton(
-                text=f"{item_list.emoji} {item_list.title}",
+                text=f"{item_list.emoji} {item_list.label}",
                 callback_data=f"item:move:{item_id}:{item_list.id}",
             )
         )

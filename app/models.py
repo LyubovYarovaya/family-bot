@@ -87,6 +87,14 @@ class ItemList(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     position: Mapped[int] = mapped_column(Integer, default=100)
+    # Подкатегория: «Одежда» → «Аркадий». Вложенность одна, глубже не нужно —
+    # иначе в мини-приложении пришлось бы рисовать дерево.
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("lists.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    # Личная категория: видит только владелец (owner_id). Остальные участники
+    # семьи не находят её ни в приложении, ни в боте, ни в автоподборе по ссылке.
+    is_private: Mapped[bool] = mapped_column(Boolean, default=False)
 
     share_token: Mapped[str] = mapped_column(String(32), unique=True, default=new_token)
     is_shared: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -100,6 +108,24 @@ class ItemList(Base, TimestampMixin):
     items: Mapped[list[Item]] = relationship(
         back_populates="list", cascade="all, delete-orphan"
     )
+    parent: Mapped[ItemList | None] = relationship(
+        remote_side=[id], back_populates="children"
+    )
+    children: Mapped[list[ItemList]] = relationship(
+        back_populates="parent", cascade="all, delete-orphan"
+    )
+
+    @property
+    def label(self) -> str:
+        """«Одежда · Аркадий» для подкатегории, просто название для остальных.
+
+        Родителя читаем, только если он уже загружен: в async-сессии ленивая
+        подгрузка из синхронного свойства упала бы.
+        """
+        if self.parent_id is None:
+            return self.title
+        parent = self.__dict__.get("parent")
+        return f"{parent.title} · {self.title}" if parent is not None else self.title
 
 
 # Уровни важности позиции. Ноль — «не выбирали», поэтому такие позиции не
@@ -203,6 +229,22 @@ PERIODS = {
     "quarterly": "Ежеквартальная",
     "yearly": "Ежегодная",
 }
+
+
+class AppliedMigration(Base):
+    """Разовые переносы данных, которые уже выполнены на этой базе.
+
+    Схему достраивают create_all и NEW_COLUMNS, а здесь отмечаются переделки
+    содержимого — например, новая раскладка категорий. Отметка нужна, чтобы
+    перенос не повторялся на каждом старте и не воскрешал удалённое руками.
+    """
+
+    __tablename__ = "app_migrations"
+
+    name: Mapped[str] = mapped_column(String(80), primary_key=True)
+    applied_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class Media(Base, TimestampMixin):

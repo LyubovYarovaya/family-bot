@@ -8,8 +8,8 @@ from app.services.quick_expense import parse_expense
 def test_category_by_title():
     assert guess_category("Коляска 2 в 1 Anex", "https://shop.ua/p/123").slug == "baby"
     assert guess_category("Ноутбук ASUS Vivobook 15").slug == "tech"
-    assert guess_category("Сковорода Tefal 28 см").slug == "kitchen"
-    assert guess_category("Комплект постельного белья сатин").slug == "textile"
+    assert guess_category("Сковорода Tefal 28 см").slug == "home"
+    assert guess_category("Комплект постельного белья сатин").slug == "home"
     assert guess_category("Настольная лампа для спальни").slug == "home"
 
 
@@ -140,3 +140,28 @@ def test_receipt_disabled_without_key(monkeypatch):
     monkeypatch.setattr(settings, "anthropic_api_key", "")
     assert receipts.enabled() is False
     assert asyncio.run(receipts.read_receipt(b"not-an-image")) is None
+
+
+def test_clothes_and_cosmetics_categories():
+    assert guess_category("Куртка демисезонная мужская").slug == "clothes"
+    assert guess_category("Кроссовки Nike Air Max").slug == "clothes"
+    assert guess_category("Сыворотка с ниацинамидом The Ordinary").slug == "cosmetics"
+    assert guess_category("Кондиционер для волос").slug == "cosmetics"
+    assert guess_category("Товар", "https://makeup.com.ua/product/123/").slug == "cosmetics"
+
+
+def test_receipt_caption_picks_category():
+    from types import SimpleNamespace
+
+    from app.bot.handlers import _category_from_caption
+
+    categories = [
+        SimpleNamespace(slug="health", title="Здоровье"),
+        SimpleNamespace(slug="pregnancy", title="Беременность"),
+        SimpleNamespace(slug="food", title="Продукты"),
+    ]
+    assert _category_from_caption("беременность", categories).slug == "pregnancy"
+    assert _category_from_caption("Беремен", categories).slug == "pregnancy"
+    assert _category_from_caption("скрининг", categories).slug == "pregnancy"
+    assert _category_from_caption("", categories) is None
+    assert _category_from_caption("что-то", categories) is None

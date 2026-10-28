@@ -26,6 +26,7 @@ from ..services import items as items_service
 from ..services import rates
 from ..services.defaults import ensure_personal_wishlist
 from ..services.link_parser import fetch_preview
+from ..services.items import visible_to
 from ..services.users import household_members, join_household
 from .serializers import item_out, list_out, user_out
 
@@ -33,7 +34,7 @@ router = APIRouter(prefix="/api")
 
 
 async def _load_list(session: AsyncSession, user: User, list_id: int) -> ItemList:
-    item_list = await items_service.get_list(session, user.household_id, list_id)
+    item_list = await items_service.get_list(session, user, list_id)
     if item_list is None:
         raise HTTPException(status_code=404, detail="Список не найден")
     return item_list
@@ -44,7 +45,7 @@ async def _load_item(session: AsyncSession, user: User, item_id: int) -> Item:
         select(Item)
         .options(selectinload(Item.created_by), selectinload(Item.list))
         .join(ItemList)
-        .where(Item.id == item_id, ItemList.household_id == user.household_id)
+        .where(Item.id == item_id, items_service.visible_to(user))
     )
     if item is None:
         raise HTTPException(status_code=404, detail="Товар не найден")
@@ -99,15 +100,9 @@ async def get_lists(
     user: User = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[ListOut]:
-    query = (
-        select(ItemList)
-        .options(selectinload(ItemList.owner))
-        .where(ItemList.household_id == user.household_id)
-        .order_by(ItemList.kind, ItemList.position, ItemList.id)
-    )
-    if kind:
-        query = query.where(ItemList.kind == kind)
-    lists = list(await session.scalars(query))
+    # Чужие личные категории сюда не попадают; подкатегории идут сразу за
+    # своим родителем — приложение рисует их вторым рядом.
+    lists = await items_service.visible_lists(session, user, kind)
 
     # Считаем в разрезе валют: складывать 42 £ и 900 ₴ как одинаковые числа
     # нельзя, поэтому каждую валюту приводим к гривне отдельно.
@@ -153,25 +148,44 @@ async def create_list(
     user: User = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ) -> ListOut:
+    parent: ItemList | None = None
+    if payload.parent_id is not None:
+        parent = await _load_list(session, user, payload.parent_id)
+        if parent.parent_id is not None:
+            raise HTTPException(status_code=400, detail="Подкатегория внутри подкатегории не нужна")
+
+    kind = parent.kind if parent else payload.kind
+    siblings = (
+        ItemList.parent_id == parent.id if parent else ItemList.parent_id.is_(None)
+    )
     max_position = await session.scalar(
         select(func.max(ItemList.position)).where(
-            ItemList.household_id == user.household_id, ItemList.kind == payload.kind
+            ItemList.household_id == user.household_id, ItemList.kind == kind, siblings
         )
     )
+    if parent:
+        # Подкатегория наследует от родителя, кому она видна и чья она.
+        owner_id, is_private = parent.owner_id, parent.is_private
+    else:
+        owner_id = user.id if (kind == "wishlist" and payload.personal) else None
+        is_private = False
     item_list = ItemList(
         household_id=user.household_id,
-        kind=payload.kind,
+        kind=kind,
         slug=f"custom{int(dt.datetime.now().timestamp())}",
         title=payload.title.strip()[:120],
-        emoji=payload.emoji or "📦",
-        owner_id=user.id if (payload.kind == "wishlist" and payload.personal) else None,
+        emoji=payload.emoji or (parent.emoji if parent else "📦"),
+        owner_id=owner_id,
+        parent_id=parent.id if parent else None,
+        is_private=is_private,
         position=(max_position or 0) + 1,
         hide_reservations_from_owner=False,  # сюрприз включается вручную, см. defaults
-        show_prices_to_guests=payload.kind != "wishlist",
+        show_prices_to_guests=kind != "wishlist",
     )
     session.add(item_list)
     await session.commit()
-    return list_out(item_list, owner_name=user.display_name if item_list.owner_id else None)
+    owner = await session.get(User, owner_id) if owner_id else None
+    return list_out(item_list, owner_name=owner.display_name if owner else None)
 
 
 @router.patch("/lists/{list_id}", response_model=ListOut)
@@ -182,7 +196,25 @@ async def update_list(
     session: AsyncSession = Depends(get_session),
 ) -> ListOut:
     item_list = await _load_list(session, user, list_id)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+
+    if "is_private" in data:
+        private = bool(data.pop("is_private"))
+        if item_list.parent_id is not None:
+            raise HTTPException(status_code=400, detail="Видимость задаётся у всей категории")
+        if item_list.owner_id not in (None, user.id):
+            # Чужую категорию спрятать нельзя: она пропала бы у самого хозяина из рук.
+            raise HTTPException(status_code=403, detail="Это категория другого участника")
+        item_list.is_private = private
+        if private:
+            item_list.owner_id = user.id
+        elif item_list.kind == "shopping":
+            item_list.owner_id = None  # у вишлиста владелец значит «чей», его не трогаем
+        children = await session.scalars(select(ItemList).where(ItemList.parent_id == item_list.id))
+        for child in children:
+            child.is_private, child.owner_id = item_list.is_private, item_list.owner_id
+
+    for field, value in data.items():
         setattr(item_list, field, value)
     await session.commit()
     owner = await session.get(User, item_list.owner_id) if item_list.owner_id else None
@@ -205,14 +237,23 @@ async def delete_list(
 async def list_items(
     list_id: int,
     status: str = Query(default="all", pattern="^(all|active|bought)$"),
+    include_children: bool = Query(default=False),
     user: User = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[ItemOut]:
     item_list = await _load_list(session, user, list_id)
+    list_ids = [item_list.id]
+    if include_children:
+        # Вкладка «Все» у категории с подкатегориями: всё вперемешку.
+        list_ids += list(
+            await session.scalars(
+                select(ItemList.id).where(ItemList.parent_id == item_list.id, visible_to(user))
+            )
+        )
     query = (
         select(Item)
         .options(selectinload(Item.created_by))
-        .where(Item.list_id == item_list.id)
+        .where(Item.list_id.in_(list_ids))
         .order_by(Item.status, Item.priority.desc(), Item.id.desc())
     )
     if status != "all":
@@ -305,11 +346,11 @@ async def parse_link(
     if not url:
         raise HTTPException(status_code=400, detail="Нужна ссылка")
     preview = await fetch_preview(url)
-    target, _ = await items_service.pick_list_for(session, user.household_id, preview)
+    target, _ = await items_service.pick_list_for(session, user, preview)
     return LinkPreviewOut(
         **preview.as_dict(),
         suggested_list_id=target.id,
-        suggested_list_title=f"{target.emoji} {target.title}",
+        suggested_list_title=f"{target.emoji} {target.label}",
     )
 
 

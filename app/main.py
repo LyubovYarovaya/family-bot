@@ -18,7 +18,8 @@ from .api.public import router as public_router
 from .bot import COMMANDS, get_bot, get_dispatcher
 from .config import settings
 from .db import SessionLocal, init_db
-from .services import rates
+from .services import rates, receipts
+from .services.migrations import run_data_migrations
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("family-bot")
@@ -85,6 +86,10 @@ async def _start_bot(app: FastAPI) -> None:
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    try:
+        await run_data_migrations()
+    except Exception:  # noqa: BLE001 — бот важнее раскладки: стартуем без переноса
+        logging.getLogger("family-bot.migrations").exception("Перенос данных не удался")
     # Курсы валют греем сразу: сериализаторы синхронные и в сеть не ходят,
     # без прогретого кэша первый экран показался бы без пересчёта.
     await rates.refresh()
@@ -122,6 +127,15 @@ async def telegram_webhook(
 @app.get("/healthz")
 async def healthz() -> dict:
     """Состояние сервиса. Про токен отдаём только длину — само значение секрет."""
+    from sqlalchemy import select
+
+    from .models import AppliedMigration
+
+    try:
+        async with SessionLocal() as session:
+            applied = sorted(await session.scalars(select(AppliedMigration.name)))
+    except Exception as error:  # noqa: BLE001 — healthz отвечает, даже если база легла
+        applied = [f"ошибка: {type(error).__name__}"]
     return {
         "ok": True,
         "bot": runtime.bot_username,
@@ -130,6 +144,10 @@ async def healthz() -> dict:
         "token_len": len(settings.bot_token),
         "public_url": settings.base_url,
         "db": settings.database_url.split("://", 1)[0],
+        # Задан ли ключ для чтения чеков — да или нет, сам ключ наружу не уходит.
+        "receipts": receipts.enabled(),
+        # Какие разовые переносы данных уже выполнены на этой базе.
+        "migrations": applied,
         # Railway подставляет хеш коммита сам — по нему видно, доехала ли правка.
         "commit": (os.getenv("RAILWAY_GIT_COMMIT_SHA") or "")[:7] or None,
     }

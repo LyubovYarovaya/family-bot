@@ -31,6 +31,8 @@ class ListOut(BaseModel):
     owner_id: int | None = None
     owner_name: str | None = None
     position: int
+    parent_id: int | None = None
+    is_private: bool = False
     is_shared: bool
     share_url: str | None = None
     hide_reservations_from_owner: bool = False
@@ -45,6 +47,7 @@ class ListCreate(BaseModel):
     title: str
     emoji: str = "📦"
     personal: bool = False
+    parent_id: int | None = None  # подкатегория внутри существующей категории
 
 
 class ListUpdate(BaseModel):
@@ -54,6 +57,7 @@ class ListUpdate(BaseModel):
     is_shared: bool | None = None
     hide_reservations_from_owner: bool | None = None
     show_prices_to_guests: bool | None = None
+    is_private: bool | None = None
 
 
 class ItemOut(BaseModel):

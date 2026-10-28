@@ -133,6 +133,12 @@ main > * { min-width: 0; max-width: 100%; }
 .chip.active { background: var(--ink); color: #fff; }
 .chip.active .ic, .chip.active .count { color: rgba(255, 255, 255, .6); }
 .chip.add { color: var(--ink-3); background: var(--surface-2); }
+/* Подкатегории — второй ряд: мельче и светлее, читается как уточнение. */
+.chips.sub { margin-top: 8px; }
+.chips.sub .chip { padding: 6px 10px; font-size: 12px; background: var(--surface-2); }
+.chips.sub .chip.active { background: var(--accent-soft); color: var(--accent); }
+.chips.sub .chip.active .ic, .chips.sub .chip.active .count { color: var(--accent); }
+.chip .ic-xs { width: 12px; height: 12px; }
 
 /* ---------- кнопки ---------- */
 

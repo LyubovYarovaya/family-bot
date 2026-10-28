@@ -8,12 +8,11 @@ from ..models import ExpenseCategory, Household, ItemList, User
 DEFAULT_LISTS: list[tuple[str, str, str]] = [
     # slug, title, emoji
     ("tech", "Техника", "🔌"),
-    ("kitchen", "Кухня", "🍳"),
-    ("home", "Квартира", "🏠"),
-    ("textile", "Текстиль", "🧵"),
+    ("home", "Дом", "🏠"),
     ("baby", "Baby", "🍼"),
+    ("clothes", "Одежда", "👗"),
     ("health", "Здоровье", "🩺"),
-    ("other", "Разное", "📦"),
+    ("cosmetics", "Косметика", "💄"),
 ]
 
 DEFAULT_EXPENSE_CATEGORIES: list[tuple[str, str, str]] = [

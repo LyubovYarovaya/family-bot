@@ -26,6 +26,8 @@ def list_out(
         owner_id=item_list.owner_id,
         owner_name=owner_name,
         position=item_list.position,
+        parent_id=item_list.parent_id,
+        is_private=item_list.is_private,
         is_shared=item_list.is_shared,
         share_url=settings.share_url(item_list.share_token) if item_list.is_shared else None,
         hide_reservations_from_owner=item_list.hide_reservations_from_owner,

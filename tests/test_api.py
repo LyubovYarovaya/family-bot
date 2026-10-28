@@ -11,7 +11,7 @@ async def test_bootstrap_creates_default_lists(client):
 
     lists = (await client.get("/api/lists")).json()
     shopping = {row["slug"] for row in lists if row["kind"] == "shopping"}
-    assert {"tech", "kitchen", "home", "textile", "baby"} <= shopping
+    assert {"tech", "home", "baby", "clothes", "health", "cosmetics"} <= shopping
 
     wishlists = [row for row in lists if row["kind"] == "wishlist"]
     assert any(row["owner_id"] is None for row in wishlists)  # общий
@@ -304,3 +304,176 @@ async def test_receipt_photo_becomes_expense(client, monkeypatch):
     assert made["receipt_url"] and made["receipt_url"].startswith("/media/")
     picture = await client.get(made["receipt_url"])
     assert picture.status_code == 200 and picture.content == b"JPEGDATA"
+
+
+async def test_subcategories_show_up_under_all(client):
+    """Подкатегория: свои позиции, а во вкладке «Все» — вместе с родителем."""
+    lists = (await client.get("/api/lists")).json()
+    clothes = next(row for row in lists if row["slug"] == "clothes")
+
+    sub = (await client.post(
+        "/api/lists", json={"title": "Аркадий", "emoji": "👗", "parent_id": clothes["id"]}
+    )).json()
+    assert sub["parent_id"] == clothes["id"] and sub["kind"] == "shopping"
+
+    # Вложенность одна: подкатегория в подкатегории не нужна.
+    deeper = await client.post("/api/lists", json={"title": "x", "parent_id": sub["id"]})
+    assert deeper.status_code == 400
+
+    own = (await client.post("/api/items", json={"title": "Кеды", "list_id": clothes["id"]})).json()
+    his = (await client.post("/api/items", json={"title": "Куртка", "list_id": sub["id"]})).json()
+    assert his["list_id"] == sub["id"]
+
+    only_sub = (await client.get(f"/api/lists/{sub['id']}/items")).json()
+    assert [row["id"] for row in only_sub] == [his["id"]]
+    only_parent = (await client.get(f"/api/lists/{clothes['id']}/items")).json()
+    assert [row["id"] for row in only_parent] == [own["id"]]
+    everything = (await client.get(
+        f"/api/lists/{clothes['id']}/items?include_children=true"
+    )).json()
+    assert {row["id"] for row in everything} == {own["id"], his["id"]}
+
+    # Подкатегория идёт в выдаче сразу за родителем.
+    ids = [row["id"] for row in (await client.get("/api/lists?kind=shopping")).json()]
+    assert ids.index(sub["id"]) == ids.index(clothes["id"]) + 1
+
+    # Удаление категории уносит и подкатегории.
+    assert (await client.delete(f"/api/lists/{clothes['id']}")).json() == {"ok": True}
+    ids = {row["id"] for row in (await client.get("/api/lists")).json()}
+    assert clothes["id"] not in ids and sub["id"] not in ids
+
+
+async def test_private_category_is_invisible_to_partner(client, monkeypatch):
+    """Личная категория: второй участник семьи не видит её нигде."""
+    from app.config import settings
+    from app.db import SessionLocal
+    from app.services import items as items_service
+    from app.services.users import get_or_create_user
+
+    me = (await client.get("/api/me")).json()
+    lists = (await client.get("/api/lists")).json()
+    cosmetics = next(row for row in lists if row["slug"] == "cosmetics")
+
+    private = (await client.patch(
+        f"/api/lists/{cosmetics['id']}", json={"is_private": True}
+    )).json()
+    assert private["is_private"] and private["owner_id"] == me["user"]["id"]
+    item = (await client.post(
+        "/api/items", json={"title": "Сыворотка", "list_id": cosmetics["id"]}
+    )).json()
+
+    # Второй участник вступает в ту же семью.
+    monkeypatch.setattr(settings, "dev_tg_id", 778)
+    joined = await client.post("/api/household/join", json={"code": me["invite_code"]})
+    assert joined.status_code == 200
+
+    partner_lists = (await client.get("/api/lists")).json()
+    assert cosmetics["id"] not in {row["id"] for row in partner_lists}
+    assert (await client.get(f"/api/lists/{cosmetics['id']}/items")).status_code == 404
+    assert (await client.patch(f"/api/items/{item['id']}", json={"title": "x"})).status_code == 404
+    # И нельзя положить туда своё, и нельзя её «расприватить».
+    assert (await client.patch(
+        f"/api/lists/{cosmetics['id']}", json={"is_private": False}
+    )).status_code == 404
+
+    # Автоподбор по ссылке тоже её не предлагает: крем у партнёра уходит в общее.
+    async with SessionLocal() as session:
+        partner = await get_or_create_user(session, 778, first_name="Dev")
+        target, _ = await items_service.pick_list_for(
+            session, partner,
+            items_service.LinkPreview(url="https://makeup.com.ua/product/1/", title="Крем для лица"),
+        )
+        assert target.slug != "cosmetics"
+
+    # Владелица по-прежнему видит категорию и может открыть её обратно.
+    monkeypatch.setattr(settings, "dev_tg_id", 777)
+    assert cosmetics["id"] in {row["id"] for row in (await client.get("/api/lists")).json()}
+    shared = (await client.patch(f"/api/lists/{cosmetics['id']}", json={"is_private": False})).json()
+    assert not shared["is_private"] and shared["owner_id"] is None
+
+
+async def test_categories_v2_migration_relayouts_old_household(client):
+    """Разовый перенос: старая раскладка → новая, без потери товаров."""
+    import datetime as dt
+    from decimal import Decimal
+
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Expense, ExpenseCategory, Household, Item, ItemList, User
+    from app.services.migrations import apply_categories_v2
+
+    old_layout = [
+        ("tech", "Техника", "🔌"), ("kitchen", "Кухня", "🍳"), ("home", "Квартира", "🏠"),
+        ("textile", "Текстиль", "🧵"), ("baby", "Baby", "🍼"), ("health", "Здоровье", "🩺"),
+        ("other", "Разное", "📦"), ("custom1", "Подарки на НГ", "🎁"),
+    ]
+    async with SessionLocal() as session:
+        household = Household(title="Бореці")
+        session.add(household)
+        await session.flush()
+        lyubov = User(tg_id=9001, first_name="Любовь", household_id=household.id)
+        arkadiy = User(tg_id=9002, first_name="Аркадий", household_id=household.id)
+        session.add_all([arkadiy, lyubov])
+        lists = {}
+        for pos, (slug, title, emoji) in enumerate(old_layout):
+            lists[slug] = ItemList(
+                household_id=household.id, kind="shopping", slug=slug,
+                title=title, emoji=emoji, position=pos,
+            )
+            session.add(lists[slug])
+        for slug in ("car", "health", "food", "other"):
+            session.add(ExpenseCategory(household_id=household.id, slug=slug, title=slug))
+        await session.flush()
+        session.add_all([
+            Item(list_id=lists["kitchen"].id, title="Сковорода"),
+            Item(list_id=lists["textile"].id, title="Плед"),
+            Item(list_id=lists["other"].id, title="Батарейки"),
+            Item(list_id=lists["health"].id, title="Тонометр"),
+        ])
+        await session.commit()
+        hid = household.id
+
+        journal = await apply_categories_v2(session)
+        await session.commit()
+        assert any("Любовь" in line for line in journal)
+
+        shopping = list(await session.scalars(
+            select(ItemList).where(ItemList.household_id == hid, ItemList.kind == "shopping")
+            .order_by(ItemList.position, ItemList.id)
+        ))
+        top = [l for l in shopping if l.parent_id is None]
+        assert [l.title for l in top] == [
+            "Техника", "Дом", "Baby", "Одежда", "Здоровье", "Косметика", "Подарки на НГ",
+        ]
+        by_title = {l.title: l for l in top}
+
+        # Товары кухни, текстиля и разного не потерялись — они в «Доме».
+        home_items = set(await session.scalars(
+            select(Item.title).where(Item.list_id == by_title["Дом"].id)
+        ))
+        assert home_items == {"Сковорода", "Плед", "Батарейки"}
+        health_items = set(await session.scalars(
+            select(Item.title).where(Item.list_id == by_title["Здоровье"].id)
+        ))
+        assert health_items == {"Тонометр"}
+
+        for parent in ("Одежда", "Здоровье"):
+            children = [l.title for l in shopping if l.parent_id == by_title[parent].id]
+            assert children == ["Аркадий", "Любовь"]
+
+        cosmetics = by_title["Косметика"]
+        assert cosmetics.is_private and cosmetics.owner_id == lyubov.id
+
+        slugs = set(await session.scalars(
+            select(ExpenseCategory.slug).where(ExpenseCategory.household_id == hid)
+        ))
+        assert "pregnancy" in slugs
+
+        # Повторный прогон ничего не дублирует.
+        await apply_categories_v2(session)
+        await session.commit()
+        again = list(await session.scalars(
+            select(ItemList).where(ItemList.household_id == hid, ItemList.kind == "shopping")
+        ))
+        assert len(again) == len(shopping)

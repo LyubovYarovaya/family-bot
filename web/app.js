@@ -57,6 +57,9 @@ const state = {
   me: null,
   lists: [],
   active: { shopping: null, wishlist: null },
+  // Выбранная подкатегория у каждой категории: { idРодителя: idПодкатегории }.
+  // Нет записи — открыта вкладка «Все».
+  sub: {},
   items: [],
   showBought: false,
   viewKind: 'shopping',
@@ -128,18 +131,47 @@ async function loadCore() {
     state.me.members.map((m) => m.name).join(' · ');
 }
 
+/* Подкатегории приходят вперемешку с категориями, но у них есть parent_id.
+   Верхний ряд — только категории, второй ряд — подкатегории выбранной. */
+const topLists = (kind) => state.lists.filter((l) => l.kind === kind && !l.parent_id);
+const childrenOf = (id) => state.lists.filter((l) => l.parent_id === id);
+const listById = (id) => state.lists.find((l) => l.id === id) || null;
+
+function labelOf(list) {
+  const parent = list?.parent_id ? listById(list.parent_id) : null;
+  return parent ? `${parent.title} · ${list.title}` : (list?.title || '');
+}
+
+/* Куда смотрим сейчас: подкатегория, если выбрана, иначе сама категория. */
+function selectedListId(kind) {
+  const parent = state.active[kind];
+  return state.sub[parent] || parent;
+}
+
 async function loadLists() {
   state.lists = await api('/api/lists');
   for (const kind of ['shopping', 'wishlist']) {
-    const own = state.lists.filter((l) => l.kind === kind);
+    const own = topLists(kind);
     if (!own.some((l) => l.id === state.active[kind])) {
       state.active[kind] = own.length ? own[0].id : null;
     }
   }
+  for (const [parent, sub] of Object.entries(state.sub)) {
+    if (!childrenOf(Number(parent)).some((l) => l.id === sub)) delete state.sub[parent];
+  }
 }
 
-async function loadItems(listId) {
-  state.items = listId ? await api(`/api/lists/${listId}/items`) : [];
+async function loadItems(kind) {
+  const parent = state.active[kind];
+  if (!parent) { state.items = []; return; }
+  const sub = state.sub[parent];
+  if (sub) {
+    state.items = await api(`/api/lists/${sub}/items`);
+  } else {
+    // «Все»: позиции самой категории и всех её подкатегорий разом.
+    const withChildren = childrenOf(parent).length ? '?include_children=true' : '';
+    state.items = await api(`/api/lists/${parent}/items${withChildren}`);
+  }
 }
 
 function monthRange(date) {
@@ -166,14 +198,34 @@ async function loadExpenses() {
 /* ---------- рендер: покупки и вишлисты ---------- */
 
 function listChips(kind) {
-  const lists = state.lists.filter((l) => l.kind === kind);
-  return `<div class="chips">${lists.map((l) => `
-    <button class="chip ${l.id === state.active[kind] ? 'active' : ''}" data-pick-list="${l.id}">
+  const lists = topLists(kind);
+  return `<div class="chips">${lists.map((l) => {
+    // Счётчик категории включает позиции всех её подкатегорий.
+    const count = childrenOf(l.id).reduce((sum, c) => sum + c.active_count, l.active_count);
+    return `<button class="chip ${l.id === state.active[kind] ? 'active' : ''}" data-pick-list="${l.id}">
       ${iconForEmoji(l.emoji)}
       <span>${esc(l.title)}</span>
-      <span class="count">${l.active_count}</span>
-    </button>`).join('')}
+      ${l.is_private ? icon('lock', 'ic-xs') : ''}
+      <span class="count">${count}</span>
+    </button>`;
+  }).join('')}
     <button class="chip add" data-new-list="${kind}">${icon('plus', 'ic-sm')}</button>
+  </div>`;
+}
+
+/* Второй ряд: «Все» и подкатегории выбранной категории. */
+function subChips(kind) {
+  const parent = state.active[kind];
+  const children = parent ? childrenOf(parent) : [];
+  if (!children.length) return '';
+  const current = state.sub[parent] || 0;
+  return `<div class="chips sub">
+    <button class="chip ${current === 0 ? 'active' : ''}" data-pick-sub="0">Все</button>
+    ${children.map((c) => `
+      <button class="chip ${c.id === current ? 'active' : ''}" data-pick-sub="${c.id}">
+        ${icon('user')}<span>${esc(c.title)}</span><span class="count">${c.active_count}</span>
+      </button>`).join('')}
+    <button class="chip add" data-new-sub="${parent}" aria-label="Новая подкатегория">${icon('plus', 'ic-sm')}</button>
   </div>`;
 }
 
@@ -192,6 +244,11 @@ function itemCard(item) {
   // В вишлистах приоритет не показываем: там его не выставляют.
   if (item.priority && state.viewKind !== 'wishlist') {
     meta.push(`<span class="badge prio p${item.priority}">${esc(PRIORITIES[item.priority])}</span>`);
+  }
+  // Во вкладке «Все» подписываем, из какой подкатегории позиция.
+  const sub = listById(item.list_id);
+  if (sub?.parent_id && !state.sub[sub.parent_id]) {
+    meta.push(`<span class="badge">${icon('user')} ${esc(sub.title)}</span>`);
   }
   if (item.shop) meta.push(`<span>${esc(item.shop)}</span>`);
   if (item.created_by) meta.push(`<span>${esc(item.created_by)}</span>`);
@@ -221,7 +278,7 @@ function itemCard(item) {
 }
 
 function currentList(kind) {
-  return state.lists.find((l) => l.id === state.active[kind]) || null;
+  return listById(selectedListId(kind));
 }
 
 function renderItemsView(kind) {
@@ -258,11 +315,13 @@ function renderItemsView(kind) {
 
   view.innerHTML = `
     ${listChips(kind)}
+    ${subChips(kind)}
     ${inviteBlock}
     ${list ? `<div class="panel">
       <div class="list-head">
         ${iconBadge(list.emoji)}
-        <span class="name">${esc(list.title)}</span>
+        <span class="name">${esc(labelOf(list))}</span>
+        ${list.is_private ? `<span class="badge">${icon('lock')} только ты</span>` : ''}
         ${total ? `<span class="sum">${esc(money(total, 'UAH'))}</span>` : ''}
       </div>
       <div class="list-actions">
@@ -286,7 +345,7 @@ function renderItemsView(kind) {
             ${list.hide_reservations_from_owner ? 'Брони скрыты' : 'Брони видны'}
           </button>` : ''}
         <span class="spacer" style="flex:1"></span>
-        <button class="btn small icon outline" data-rename-list="${list.id}" aria-label="Переименовать">${icon('pencil', 'ic-sm')}</button>
+        <button class="btn small icon outline" data-rename-list="${list.id}" aria-label="Настройки">${icon('pencil', 'ic-sm')}</button>
         <button class="btn small icon danger" data-delete-list="${list.id}" aria-label="Удалить список">${icon('trash', 'ic-sm')}</button>
       </div>
       ${list.is_shared ? `<div class="share-box">
@@ -295,6 +354,11 @@ function renderItemsView(kind) {
       </div>` : ''}
     </div>` : ''}
     ${body}`;
+  // Ряд категорий перерисован с нуля и прокручен в начало — возвращаем
+  // в поле зрения выбранную, иначе дальняя («Косметика») уезжает за край.
+  view.querySelectorAll('.chips .chip.active').forEach((chip) => {
+    chip.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  });
 }
 
 /* ---------- рендер: траты ---------- */
@@ -406,7 +470,7 @@ function renderSettings() {
     <div class="panel">
       <h3>${icon('link')} Открытые ссылки</h3>
       ${shared.length ? shared.map((l) => `<div class="row">
-        <div class="label">${iconBadge(l.emoji, 'sm')} ${esc(l.title)}</div>
+        <div class="label">${iconBadge(l.emoji, 'sm')} ${esc(labelOf(l))}</div>
         <div class="value">
         <button class="btn small icon outline" data-send-list="${l.id}" aria-label="Отправить">${icon('share', 'ic-sm')}</button>
         <button class="btn small icon outline" data-copy="${esc(l.share_url)}" aria-label="Копировать">${icon('copy', 'ic-sm')}</button>
@@ -473,7 +537,7 @@ function openSheet(title, html, onSubmit) {
    остаются только названия — без эмодзи и без иконок. */
 function listOptions(kind, selectedId) {
   return state.lists.filter((l) => l.kind === kind)
-    .map((l) => `<option value="${l.id}" ${l.id === selectedId ? 'selected' : ''}>${esc(l.title)}</option>`)
+    .map((l) => `<option value="${l.id}" ${l.id === selectedId ? 'selected' : ''}>${esc(labelOf(l))}</option>`)
     .join('');
 }
 
@@ -530,7 +594,7 @@ function photoField(item) {
 
 function openItemSheet(item = null) {
   const kind = state.tab === 'wishlist' ? 'wishlist' : 'shopping';
-  const listId = item ? item.list_id : state.active[kind];
+  const listId = item ? item.list_id : selectedListId(kind);
   const bothKinds = ['shopping', 'wishlist']
     .map((k) => `<optgroup label="${k === 'shopping' ? 'Покупки' : 'Вишлисты'}">${listOptions(k, listId)}</optgroup>`)
     .join('');
@@ -655,6 +719,23 @@ function openExpenseSheet(expense = null, { template = false } = {}) {
   });
 }
 
+function openSubListSheet(parentId) {
+  const parent = listById(parentId);
+  openSheet(`Подкатегория в «${parent.title}»`, `
+    <label class="field"><span>Название</span><input name="title" placeholder="Например, Аркадий" required></label>
+    <div class="dim">Позиции подкатегории видны и в самой категории, во вкладке «Все».</div>
+  `, async (data) => {
+    if (!data.title?.trim()) throw new Error('Нужно название');
+    const created = await api('/api/lists', {
+      method: 'POST',
+      body: { kind: parent.kind, title: data.title.trim(), emoji: parent.emoji, parent_id: parent.id },
+    });
+    state.active[parent.kind] = parent.id;
+    state.sub[parent.id] = created.id;
+    await refresh();
+  });
+}
+
 function openListSheet(kind) {
   openSheet(kind === 'wishlist' ? 'Новый вишлист' : 'Новая категория', `
     <label class="field"><span>Название</span><input name="title" required></label>
@@ -672,12 +753,32 @@ function openListSheet(kind) {
   });
 }
 
+/* Настройки списка под карандашом: название, иконка, а у категорий покупок
+   ещё кто её видит и подкатегории. В панели этим кнопкам тесно, а нужны
+   они редко. */
 function openRenameSheet(list) {
-  openSheet('Название списка', `
+  const isCategory = list.kind === 'shopping' && !list.parent_id;
+  const canHide = isCategory && (!list.owner_id || list.owner_id === state.me.user.id);
+  const heading = list.parent_id ? 'Подкатегория' : (list.kind === 'shopping' ? 'Категория' : 'Список');
+  openSheet(heading, `
     <label class="field"><span>Название</span><input name="title" value="${esc(list.title)}" required></label>
-    ${iconPicker(list.emoji)}
+    ${list.parent_id ? '' : iconPicker(list.emoji)}
+    ${canHide ? `<label class="field"><span>Кто видит</span>
+      <select name="visibility">
+        <option value="family" ${list.is_private ? '' : 'selected'}>Вся семья</option>
+        <option value="me" ${list.is_private ? 'selected' : ''}>Только я</option>
+      </select></label>
+      <div class="dim" style="margin:-6px 0 12px">Личную категорию остальные не увидят ни в приложении, ни в боте.</div>` : ''}
+    ${isCategory ? `<button type="button" class="btn small outline" data-new-sub="${list.id}" style="margin-bottom:12px">
+      ${icon('plus', 'ic-sm')} Добавить подкатегорию</button>` : ''}
   `, async (data) => {
-    await api(`/api/lists/${list.id}`, { method: 'PATCH', body: { title: data.title, emoji: data.emoji } });
+    const body = { title: data.title };
+    if (data.emoji) body.emoji = data.emoji;
+    if (canHide) body.is_private = data.visibility === 'me';
+    await api(`/api/lists/${list.id}`, { method: 'PATCH', body });
+    if (canHide && body.is_private !== list.is_private) {
+      toast(body.is_private ? 'Теперь категорию видишь только ты' : 'Категория снова видна всей семье');
+    }
     await refresh();
   });
 }
@@ -724,7 +825,8 @@ document.addEventListener('click', async (event) => {
   const target = event.target.closest('[data-pick-list], [data-new-list], [data-toggle-bought], [data-edit-item],'
     + '[data-delete-item], [data-toggle-shown], [data-share-list], [data-rename-list], [data-delete-list],'
     + '[data-copy], [data-send-list], [data-send-invite], [data-toggle-surprise], [data-toggle-prices], [data-month], [data-edit-expense], [data-delete-expense], [data-pay-template],'
-    + '[data-new-template], [data-new-expense-category], [data-delete-expense-category], [data-unshare]');
+    + '[data-new-template], [data-new-expense-category], [data-delete-expense-category], [data-unshare],'
+    + '[data-pick-sub], [data-new-sub]');
   if (!target) return;
   const data = target.dataset;
 
@@ -733,8 +835,18 @@ document.addEventListener('click', async (event) => {
       const kind = state.tab === 'wishlist' ? 'wishlist' : 'shopping';
       state.active[kind] = Number(data.pickList);
       haptic();
-      await loadItems(state.active[kind]);
+      await loadItems(kind);
       renderItemsView(kind);
+    } else if (data.pickSub !== undefined) {
+      const kind = state.tab === 'wishlist' ? 'wishlist' : 'shopping';
+      const parent = state.active[kind];
+      if (Number(data.pickSub)) state.sub[parent] = Number(data.pickSub);
+      else delete state.sub[parent];
+      haptic();
+      await loadItems(kind);
+      renderItemsView(kind);
+    } else if (data.newSub) {
+      openSubListSheet(Number(data.newSub));
     } else if (data.newList) {
       openListSheet(data.newList);
     } else if (data.toggleBought) {
@@ -761,7 +873,11 @@ document.addEventListener('click', async (event) => {
     } else if (data.renameList) {
       openRenameSheet(state.lists.find((l) => l.id === Number(data.renameList)));
     } else if (data.deleteList) {
-      if (!confirm('Удалить список вместе со всем содержимым?')) return;
+      const doomed = listById(Number(data.deleteList));
+      const question = doomed && childrenOf(doomed.id).length
+        ? 'Удалить категорию вместе с подкатегориями и всем содержимым?'
+        : 'Удалить список вместе со всем содержимым?';
+      if (!confirm(question)) return;
       await api(`/api/lists/${data.deleteList}`, { method: 'DELETE' });
       await refresh();
     } else if (data.copy) {
@@ -838,7 +954,7 @@ async function refresh() {
   try {
     if (state.tab === 'shopping' || state.tab === 'wishlist') {
       await loadLists();
-      await loadItems(state.active[state.tab]);
+      await loadItems(state.tab);
       renderItemsView(state.tab);
       fab.hidden = false;
     } else if (state.tab === 'expenses') {

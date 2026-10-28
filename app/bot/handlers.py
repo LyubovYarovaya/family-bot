@@ -48,7 +48,8 @@ HELP = """<b>Что я умею</b>
 Определю категорию траты и запишу.
 
 📷 <b>Пришли фото чека</b> — прочитаю сумму, дату и магазин, определю категорию
-и запишу трату. Категорию можно поправить кнопкой под сообщением.
+и запишу трату. Подпиши фото «беременность» — и чек сразу ляжет туда.
+Категорию можно поправить кнопкой под сообщением.
 
 🎁 <b>Вишлисты</b> — общий на двоих и личный у каждого.
 Любой список можно открыть по ссылке: гости увидят его без Telegram
@@ -97,7 +98,7 @@ PRIORITY_MARKS = {3: "🔴", 2: "🟡", 1: "🟢"}
 
 
 def item_card(item: Item, item_list: ItemList) -> str:
-    lines = [f"✅ Добавила в <b>{escape(item_list.emoji)} {escape(item_list.title)}</b>", ""]
+    lines = [f"✅ Добавила в <b>{escape(item_list.emoji)} {escape(item_list.label)}</b>", ""]
     lines.append(f"<b>{escape(item.title)}</b>")
     if item.priority and item_list.kind != "wishlist":
         lines.append(f"{PRIORITY_MARKS[item.priority]} Приоритет: {ITEM_PRIORITIES[item.priority]}")
@@ -204,17 +205,25 @@ async def invite(message: Message) -> None:
 async def show_lists(message: Message) -> None:
     async with SessionLocal() as session:
         user = await resolve_user(session, message)
-        rows = await session.execute(
-            select(ItemList, func.count(Item.id))
-            .outerjoin(Item, (Item.list_id == ItemList.id) & (Item.status == "active"))
-            .where(ItemList.household_id == user.household_id, ItemList.kind == "shopping")
-            .group_by(ItemList.id)
-            .order_by(ItemList.position, ItemList.id)
+        lists = await items_service.visible_lists(session, user, "shopping")
+        counts = dict(
+            (
+                await session.execute(
+                    select(Item.list_id, func.count(Item.id))
+                    .where(Item.list_id.in_([l.id for l in lists]), Item.status == "active")
+                    .group_by(Item.list_id)
+                )
+            ).all()
         )
         lines = ["<b>📋 Категории покупок</b>", ""]
-        for item_list, count in rows:
+        for item_list in lists:
+            count = counts.get(item_list.id, 0)
             share = " 🔗" if item_list.is_shared else ""
-            lines.append(f"{item_list.emoji} {escape(item_list.title)} — {count}{share}")
+            lock = " 🔒" if item_list.is_private else ""
+            if item_list.parent_id is None:
+                lines.append(f"{item_list.emoji} {escape(item_list.title)} — {count}{lock}{share}")
+            else:
+                lines.append(f"      └ {escape(item_list.title)} — {count}{share}")
     await message.answer("\n".join(lines), reply_markup=kb.open_app_button("Открыть списки"))
 
 
@@ -226,7 +235,7 @@ async def show_wishlists(message: Message) -> None:
         rows = await session.execute(
             select(ItemList, func.count(Item.id))
             .outerjoin(Item, (Item.list_id == ItemList.id) & (Item.status == "active"))
-            .where(ItemList.household_id == user.household_id, ItemList.kind == "wishlist")
+            .where(items_service.visible_to(user), ItemList.kind == "wishlist")
             .group_by(ItemList.id)
             .order_by(ItemList.position, ItemList.id)
         )
@@ -249,17 +258,11 @@ async def share_menu(message: Message) -> None:
 
     async with SessionLocal() as session:
         user = await resolve_user(session, message)
-        lists = list(
-            await session.scalars(
-                select(ItemList)
-                .where(ItemList.household_id == user.household_id)
-                .order_by(ItemList.kind, ItemList.position, ItemList.id)
-            )
-        )
+        lists = await items_service.visible_lists(session, user)
     buttons = [
         [
             InlineKeyboardButton(
-                text=f"{'🔗' if item_list.is_shared else '🔒'} {item_list.emoji} {item_list.title}",
+                text=f"{'🔗' if item_list.is_shared else '🔒'} {item_list.emoji} {item_list.label}",
                 callback_data=f"share:toggle:{item_list.id}",
             )
         ]
@@ -277,14 +280,14 @@ async def toggle_share(callback: CallbackQuery) -> None:
     list_id = int(callback.data.split(":")[2])
     async with SessionLocal() as session:
         user = await resolve_user(session, callback)
-        item_list = await items_service.get_list(session, user.household_id, list_id)
+        item_list = await items_service.get_list(session, user, list_id)
         if item_list is None:
             await callback.answer("Список не найден", show_alert=True)
             return
         item_list.is_shared = not item_list.is_shared
         await session.commit()
         is_shared, token = item_list.is_shared, item_list.share_token
-        title = f"{item_list.emoji} {item_list.title}"
+        title = f"{item_list.emoji} {item_list.label}"
 
     if is_shared:
         url = settings.share_url(token)
@@ -394,6 +397,23 @@ async def handle_link(message: Message) -> None:
 RECEIPT_MIME = {"image/jpeg", "image/png", "image/webp"}
 
 
+def _category_from_caption(
+    caption: str | None, categories: list[ExpenseCategory]
+) -> ExpenseCategory | None:
+    """Категория, названная в подписи к фото: по названию или ключевым словам."""
+    text = (caption or "").strip().lower()
+    if not text:
+        return None
+    for category in categories:
+        title = category.title.lower()
+        if title in text or (len(text) >= 4 and title.startswith(text)):
+            return category
+    slug = guess_expense_category(text)
+    if slug == "other":
+        return None
+    return next((c for c in categories if c.slug == slug), None)
+
+
 @router.message(F.photo)
 @router.message(F.document.mime_type.in_(RECEIPT_MIME))
 async def handle_receipt(message: Message) -> None:
@@ -431,11 +451,17 @@ async def handle_receipt(message: Message) -> None:
 
         async with SessionLocal() as session:
             user = await resolve_user(session, message)
-            category = await session.scalar(
-                select(ExpenseCategory).where(
-                    ExpenseCategory.household_id == user.household_id,
-                    ExpenseCategory.slug == slug,
+            categories = list(
+                await session.scalars(
+                    select(ExpenseCategory)
+                    .where(ExpenseCategory.household_id == user.household_id)
+                    .order_by(ExpenseCategory.position, ExpenseCategory.id)
                 )
+            )
+            # Подпись к фото важнее догадки модели: «беременность» под чеком из
+            # аптеки значит именно это, даже если там обычные витамины.
+            category = _category_from_caption(getattr(message, "caption", None), categories) or next(
+                (c for c in categories if c.slug == slug), None
             )
             # Снимок чека храним рядом с фото товаров — по случайному токену.
             media = Media(token=new_token(), mime=mime, data=image, household_id=user.household_id)
@@ -459,13 +485,6 @@ async def handle_receipt(message: Message) -> None:
             expense.category = category
             text = expense_card(expense)
             expense_id = expense.id
-            categories = list(
-                await session.scalars(
-                    select(ExpenseCategory)
-                    .where(ExpenseCategory.household_id == user.household_id)
-                    .order_by(ExpenseCategory.position, ExpenseCategory.id)
-                )
-            )
 
         if receipt.confidence < 0.6:
             text += "\n\n<i>Сумму читала неуверенно — проверь.</i>"
@@ -534,9 +553,9 @@ async def fallback(message: Message) -> None:
 async def _load_item_for(session: AsyncSession, user: User, item_id: int) -> Item | None:
     return await session.scalar(
         select(Item)
-        .options(selectinload(Item.list))
+        .options(selectinload(Item.list).selectinload(ItemList.parent))
         .join(ItemList)
-        .where(Item.id == item_id, ItemList.household_id == user.household_id)
+        .where(Item.id == item_id, items_service.visible_to(user))
     )
 
 
@@ -545,13 +564,7 @@ async def pick_category(callback: CallbackQuery) -> None:
     item_id = int(callback.data.split(":")[2])
     async with SessionLocal() as session:
         user = await resolve_user(session, callback)
-        lists = list(
-            await session.scalars(
-                select(ItemList)
-                .where(ItemList.household_id == user.household_id)
-                .order_by(ItemList.kind, ItemList.position, ItemList.id)
-            )
-        )
+        lists = await items_service.visible_lists(session, user)
     await callback.message.edit_reply_markup(reply_markup=kb.list_picker(item_id, lists))
     await callback.answer()
 
@@ -601,7 +614,7 @@ async def move_item(callback: CallbackQuery) -> None:
     async with SessionLocal() as session:
         user = await resolve_user(session, callback)
         item = await _load_item_for(session, user, int(raw_item))
-        target = await items_service.get_list(session, user.household_id, int(raw_list))
+        target = await items_service.get_list(session, user, int(raw_list))
         if item is None or target is None:
             await callback.answer("Не нашла товар", show_alert=True)
             return
