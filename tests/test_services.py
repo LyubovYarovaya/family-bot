@@ -86,7 +86,7 @@ def test_title_falls_back_to_url_slug():
 
 
 def test_health_category():
-    assert guess_category("Витамины D3 K2 90 капсул").slug == "health"
+    assert guess_category("Витамины D3 K2 90 капсул").slug == "vitamins"
     assert guess_category("Тонометр автоматический на плечо").slug == "health"
 
 
@@ -165,3 +165,10 @@ def test_receipt_caption_picks_category():
     assert _category_from_caption("скрининг", categories).slug == "pregnancy"
     assert _category_from_caption("", categories) is None
     assert _category_from_caption("что-то", categories) is None
+
+
+def test_vitamins_category():
+    assert guess_category("Омега-3 Solgar 120 капсул").slug == "vitamins"
+    assert guess_category("Магній B6 таблетки").slug == "vitamins"
+    assert guess_category("Товар", "https://ua.iherb.com/pr/now-foods-vitamin-d-3/12345").slug == "vitamins"
+    assert guess_category("Глюкометр Accu-Chek").slug == "health"

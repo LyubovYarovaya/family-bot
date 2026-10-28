@@ -24,6 +24,8 @@ const ICONS = {
   share: '<circle cx="18" cy="5.5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="18.5" r="2.6"/>'
     + '<path d="m8.3 10.7 7.4-3.9M8.3 13.3l7.4 3.9"/>',
   user: '<circle cx="12" cy="8" r="3.6"/><path d="M5 20.2a7 7 0 0 1 14 0"/>',
+  pill: '<rect x="3.6" y="8.6" width="16.8" height="6.8" rx="3.4" transform="rotate(-40 12 12)"/>'
+    + '<path d="m9.4 9.1 5.2 5.8"/>',
   lipstick: '<rect x="7.5" y="13.5" width="9" height="7" rx="1.4"/><path d="M9 13.5v-3h6v3"/>'
     + '<path d="M10 10.5V6.4l4-2.4v6.5"/>',
   lock: '<rect x="4" y="10" width="16" height="10.5" rx="2.8"/><path d="M8 10V7.2a4 4 0 0 1 8 0V10"/>',
@@ -85,7 +87,7 @@ const ICONS = {
 const EMOJI_ICON = {
   '🔌': 'plug', '🍳': 'pan', '🏠': 'house', '🏡': 'house', '🧵': 'thread', '🧶': 'thread',
   '🍼': 'bottle', '👶': 'bottle', '📦': 'box', '🎁': 'gift', '⭐': 'star', '🌟': 'star',
-  '🚗': 'car', '🚙': 'car', '🩺': 'health', '🤰': 'health', '💊': 'health', '❤️': 'health', '🛒': 'cart',
+  '🚗': 'car', '🚙': 'car', '🩺': 'health', '🤰': 'health', '💊': 'pill', '❤️': 'health', '🛒': 'cart',
   '🍔': 'cart', '🥦': 'cart', '📱': 'phone', '💻': 'plug', '👗': 'dress', '👕': 'dress',
   '👟': 'dress', '🎬': 'film', '🎮': 'film', '🎵': 'film', '💸': 'money', '💰': 'money',
   '🛍': 'bag', '🛍️': 'bag', '🔁': 'repeat', '🎀': 'ribbon', '🔗': 'link', '📝': 'note',
@@ -97,7 +99,7 @@ const EMOJI_ICON = {
    он и уедет в базу, чтобы бот в чате писал его как раньше. */
 const ICON_CHOICES = [
   '🛍', '📦', '🏠', '🍳', '🔌', '🧵', '🍼', '🎁', '⭐',
-  '🚗', '🩺', '🤰', '🛒', '📱', '👗', '💄', '🎬', '💸', '🔁', '🎀',
+  '🚗', '🩺', '🤰', '🛒', '📱', '👗', '💄', '💊', '🎬', '💸', '🔁', '🎀',
 ];
 
 function icon(name, extraClass = '') {

@@ -477,3 +477,56 @@ async def test_categories_v2_migration_relayouts_old_household(client):
             select(ItemList).where(ItemList.household_id == hid, ItemList.kind == "shopping")
         ))
         assert len(again) == len(shopping)
+
+
+async def test_vitamins_migration_adopts_hand_made_category(client):
+    """Категорию «Витамины», заведённую руками, перенос не дублирует, а усыновляет."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Household, ItemList, User
+    from app.services.migrations import apply_vitamins
+
+    async with SessionLocal() as session:
+        made = Household(title="Руками")
+        bare = Household(title="Без витаминов")
+        session.add_all([made, bare])
+        await session.flush()
+        session.add_all([
+            User(tg_id=9101, first_name="A", household_id=made.id),
+            User(tg_id=9102, first_name="B", household_id=bare.id),
+            ItemList(household_id=made.id, kind="shopping", slug="custom1", title="Витамины", position=7),
+            ItemList(household_id=bare.id, kind="shopping", slug="health", title="Здоровье", position=2),
+            ItemList(household_id=bare.id, kind="shopping", slug="cosmetics", title="Косметика", position=3),
+        ])
+        await session.commit()
+
+        await apply_vitamins(session)
+        await session.commit()
+
+        own = list(await session.scalars(select(ItemList).where(ItemList.household_id == made.id)))
+        assert [(l.slug, l.position) for l in own] == [("vitamins", 7)]
+
+        order = [l.slug for l in await session.scalars(
+            select(ItemList).where(ItemList.household_id == bare.id).order_by(ItemList.position)
+        )]
+        assert order == ["health", "vitamins", "cosmetics"]
+
+
+async def test_vitamins_fall_back_to_health_without_their_category(client):
+    from app.db import SessionLocal
+    from app.models import Household, ItemList, User
+    from app.services import items as items_service
+
+    async with SessionLocal() as session:
+        household = Household(title="Без витаминов 2")
+        session.add(household)
+        await session.flush()
+        user = User(tg_id=9103, first_name="C", household_id=household.id)
+        session.add_all([
+            user,
+            ItemList(household_id=household.id, kind="shopping", slug="health", title="Здоровье"),
+        ])
+        await session.commit()
+        target = await items_service.guessed_list(session, user, "vitamins")
+        assert target.slug == "health"

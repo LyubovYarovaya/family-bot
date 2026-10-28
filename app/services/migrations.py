@@ -219,7 +219,60 @@ async def apply_categories_v2(session: AsyncSession) -> list[str]:
     return journal
 
 
-MIGRATIONS = [(CATEGORIES_V2, apply_categories_v2)]
+# --- «Витамины» отдельной категорией, октябрь 2026 -------------------------------
+#
+# Любовь завела категорию руками в приложении, и у неё случайный ярлык вида
+# custom123 — автоподбор такую не находит. Даём ей постоянный ярлык vitamins.
+# Если категории нет, создаём её сразу после «Здоровья». Порядок уже
+# существующей не трогаем: его могли выставить руками.
+
+VITAMINS = "2026-10-vitamins"
+
+
+async def apply_vitamins(session: AsyncSession) -> list[str]:
+    household_ids = list(
+        await session.scalars(
+            select(User.household_id).where(User.household_id.is_not(None)).distinct()
+        )
+    )
+    journal: list[str] = []
+    for hid in sorted(household_ids):
+        lists = list(
+            await session.scalars(
+                select(ItemList)
+                .where(
+                    ItemList.household_id == hid,
+                    ItemList.kind == "shopping",
+                    ItemList.parent_id.is_(None),
+                )
+                .order_by(ItemList.position, ItemList.id)
+            )
+        )
+        found = next((l for l in lists if l.slug == "vitamins"), None) or next(
+            (l for l in lists if l.title.strip().lower() == "витамины"), None
+        )
+        if found is not None:
+            if found.slug != "vitamins":
+                journal.append(f"семья {hid}: «{found.title}» получила ярлык vitamins (был {found.slug})")
+                found.slug = "vitamins"
+            continue
+        health = next((l for l in lists if l.slug == "health"), None)
+        position = health.position + 1 if health else len(lists)
+        for item_list in lists:
+            if item_list.position >= position:
+                item_list.position += 1
+        session.add(
+            ItemList(
+                household_id=hid, kind="shopping", slug="vitamins",
+                title="Витамины", emoji="💊", position=position,
+            )
+        )
+        journal.append(f"семья {hid}: создана «Витамины»")
+    await session.flush()
+    return journal
+
+
+MIGRATIONS = [(CATEGORIES_V2, apply_categories_v2), (VITAMINS, apply_vitamins)]
 
 
 async def run_data_migrations() -> None:

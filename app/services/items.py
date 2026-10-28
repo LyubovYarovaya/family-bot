@@ -103,13 +103,27 @@ async def fallback_list(session: AsyncSession, user: User) -> ItemList:
     return target
 
 
+# Если у семьи нет узкой категории, позиция уходит в более общую, а не в
+# «Разное»: витамины без «Витаминов» — это всё ещё «Здоровье».
+BROADER_SLUG = {"vitamins": "health"}
+
+
+async def guessed_list(session: AsyncSession, user: User, slug: str) -> ItemList | None:
+    while slug:
+        target = await list_by_slug(session, user, slug)
+        if target is not None:
+            return target
+        slug = BROADER_SLUG.get(slug)
+    return None
+
+
 async def pick_list_for(
     session: AsyncSession, user: User, preview: LinkPreview
 ) -> tuple[ItemList, bool]:
     """Подбирает категорию под товар. Второй элемент — уверен ли алгоритм."""
     guess = categorizer.guess_category(title=preview.title, url=preview.url)
     if guess.slug != "other":
-        target = await list_by_slug(session, user, guess.slug)
+        target = await guessed_list(session, user, guess.slug)
         if target is not None:
             return target, guess.confident
     return await fallback_list(session, user), False
@@ -147,7 +161,7 @@ async def add_item(
         else:
             guess = categorizer.guess_category(title=title)
             target = (
-                await list_by_slug(session, user, guess.slug)
+                await guessed_list(session, user, guess.slug)
                 if guess.slug != "other"
                 else None
             ) or await fallback_list(session, user)
